@@ -1,10 +1,14 @@
+import sys, os
+sys.path.append(os.path.join(os.path.dirname(__file__), '.'))
+os.environ['KIVY_GL_BACKEND'] = 'gl'
+
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.lang import Builder
-from camera import CameraIDS
-from camera import Histogram
-from camera import ImageButton
-from camera import TrackerHistogram
+from camera.camera_ids import CameraIDS
+from camera.histogram import Histogram
+from camera.image_button import ImageButton
+from camera.tracker_histogram import TrackerHistogram
 from kivy.logger import Logger
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.anchorlayout import AnchorLayout
@@ -36,15 +40,16 @@ import time
 import datetime
 import numpy as np
 import cv2
-#from cv2 import cv
 import os
-import sys
+
+
+
 
 LED_Pin = 19 # Broadcom Pin 4
 
 class IDSGUI(App):
-    def __init__(self, **kwargs):
-        super(IDSGUI, self).__init__(**kwargs)
+    def __init__(self):
+        super(IDSGUI, self).__init__()
         self._camera = None
 
     def _camera_toggle(self, val):
@@ -98,6 +103,7 @@ class IDSGUI(App):
         self._temp.text = "Temp: %s" % self._camera.get_temp()
         self._exposure.text = "Exposure: %d" % self._camera.get_exposure()
         self._centroid.text = "C: %d" % self._histogram.centroid
+
     def img_path(self, image_name):
         return os.path.join(os.path.dirname(__file__), 'img', image_name)
 
@@ -180,14 +186,13 @@ class IDSGUI(App):
                                   capture_fourcc="GREY",
                                   size_hint=(1,1),
                                   pos_hint={'pos':(0,0)},
-                                  play=True, )
+                                  play=True)
 
         self._histogram = Histogram(
             size_hint=(0.2,0.25), pos_hint={'pos':(0.8,0.65)})
 
         self._tracker_histogram = TrackerHistogram(
             size_hint=(0.2,0.25), pos_hint={'pos':(0.8,0.4)})
-
 
         # self._demo.bind(on_press=self._show_demo_results)
         self._toggle.bind(on_press=self._led_toggle)

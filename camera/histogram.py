@@ -37,7 +37,7 @@ class Histogram(Graph):
         kwargs['ymax'] = 1
         kwargs['padding'] = '5'
 
-        super(Histogram, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         self.fbind('bins', self._on_bins_changed)
 
@@ -67,7 +67,7 @@ class Histogram(Graph):
         # generate a histogram from a PIL image
         try:
             import cv2
-            from cv2 import cv
+            # from cv2 import cv
 
             npImage = np.array(image)
             hist_full = cv2.calcHist([npImage], [0], None, [256], [0, 256]).ravel()

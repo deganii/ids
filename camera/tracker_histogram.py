@@ -38,7 +38,7 @@ class TrackerHistogram(Graph):
         kwargs['ymax'] = 1
         kwargs['padding'] = '5'
 
-        super(TrackerHistogram, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         self.fbind('bins', self._on_bins_changed)
         self._hist_plot = MeshStemPlot()
         self.add_plot(self._hist_plot)

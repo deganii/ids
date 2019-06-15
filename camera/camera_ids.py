@@ -1,10 +1,15 @@
 from kivy.uix.image import Image
-from core_camera_ids import CoreCameraIDS
+from camera.core_camera_ids import CoreCameraIDS
 from kivy.properties import NumericProperty, ListProperty, \
     BooleanProperty, StringProperty
 
 
-class CameraIDS(Image):
+
+class CameraIDSBlackHole(object):
+    def __init__(self, **kw):
+        super(CameraIDSBlackHole, self).__init__()
+
+class CameraIDS(Image, CameraIDSBlackHole):
     '''Camera class. See module documentation for more information.
     '''
 
@@ -47,6 +52,7 @@ class CameraIDS(Image):
 
     def __init__(self, **kwargs):
         self._camera = None
+        print(kwargs)
         super(CameraIDS, self).__init__(**kwargs)
         if self.index == -1:
             self.index = 0

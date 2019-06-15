@@ -10,23 +10,14 @@ import sys
 from time import sleep
 import time
 import datetime
-import numpy as np
 import v4l2capture
-
-
-
-# dropbox related (todo: move into separate class)
-import os
-import dropbox
-from io import BytesIO
 
 import os
 from subprocess import Popen, PIPE
-import fcntl
 import subprocess
 
 import numpy as np
-
+import cv2
 
 
 class CoreCameraIDS(CameraBase):
@@ -103,11 +94,6 @@ class CoreCameraIDS(CameraBase):
             Clock.schedule_once(self.stop)
 
     def perform_mser(self, frame):
-        import cv2
-        import numpy as np
-        import cv2 as cv
-        is_old_cv = True
-
         def intersection(a, b):
             x = max(a[0], b[0])
             y = max(a[1], b[1])
@@ -116,31 +102,27 @@ class CoreCameraIDS(CameraBase):
             if w < 0 or h < 0: return 0
             return w * h
 
-        if is_old_cv:
-            mser = cv.MSER()
-        else:
-            mser = cv2.MSER_create(
-                _delta=2,
-                _min_area=720,
-                _max_area=9000,
-                _max_variation=15.0,
-                _min_diversity=10.0,
-                _max_evolution=10,
-                _area_threshold=12.0,
-                _min_margin=2.9,
-                _edge_blur_size=10)
+
+        mser = cv2.MSER_create(
+            _delta=5,
+            _min_area=60,
+            _max_area=14400,
+            _max_variation=0.25,
+            _min_diversity=0.2,
+            _max_evolution=200,
+            _area_threshold=1.01,
+            _min_margin=0.003,
+            _edge_blur_size=5)
+
         Logger.info("1st MSER (Polystyrene)")
         frame = np.array(frame)
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         vis = cv2.cvtColor(np.asarray(frame.copy()), cv2.COLOR_RGB2BGR)
-        if is_old_cv:
-            regions = mser.detect(gray, None)
-            Logger.info("1st MSER (Polystyrene). Regions: {0}".format(len(regions)))
-        else:
-            regions, q = mser.detectRegions(gray)
+
+        regions, q = mser.detectRegions(gray)
 
         # polylines
-        hulls = [cv.convexHull(p.reshape(-1, 1, 2)) for p in regions]
+        hulls = [cv2.convexHull(p.reshape(-1, 1, 2)) for p in regions]
         # cv.polylines(vis, hulls, 1, (0, 255, 0))
 
         # boundingboxes
@@ -154,20 +136,21 @@ class CoreCameraIDS(CameraBase):
         for i, contour in enumerate(hulls):
             x, y, w, h = cv2.boundingRect(contour)
             bboxes.append(cv2.boundingRect(contour))
-            # cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        Logger.info("1st MSER: Removing intersections: {0} boxes".format(len(bboxes)))
-        for i in range(len(bboxes)):
-            j = i + 1
-            while j < len(bboxes):
-                if intersection(bboxes[i], bboxes[j]) > 0:
-                    break
-                else:
-                    j = j + 1
-            if j == len(bboxes):
-                x, y, w, h = bboxes[i]
-                cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 0, 255), 2)
-        Logger.info("1st MSER Complete, bboxes={0}".format(len(bboxes)))
-        return vis, bboxes
+            cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        # Logger.info("1st MSER: Removing intersections: {0} boxes".format(len(bboxes)))
+        # for i in range(len(bboxes)):
+        #     j = i + 1
+        #     while j < len(bboxes):
+        #         if intersection(bboxes[i], bboxes[j]) > 0:
+        #             break
+        #         else:
+        #             j = j + 1
+        #     if j == len(bboxes):
+        #         x, y, w, h = bboxes[i]
+        #         cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 0, 255), 2)
+        # Logger.info("1st MSER Complete, bboxes={0}".format(len(bboxes)))
+        image = Image.fromarray(cv2.cvtColor(vis, cv2.COLOR_BGR2RGB))
+        return image, bboxes
 
     def mser_part2(self, frame, vis, bboxes1):
         import cv2
@@ -219,7 +202,7 @@ class CoreCameraIDS(CameraBase):
         for i, contour in enumerate(hulls):
             x, y, w, h = cv2.boundingRect(contour)
             bboxes.append(cv2.boundingRect(contour))
-            # cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
 
         bboxesAll = bboxes + bboxes1
@@ -272,8 +255,8 @@ class CoreCameraIDS(CameraBase):
             # fcntl.ioctl(f, USBDEVFS_RESET, 0)
             # f.close()
             # sleep(2)
-        except Exception, msg:
-            print "failed to reset device:", msg
+        except Exception as e:
+            print("failed to reset device:", e.message)
             e2 = sys.exc_info()[0]
             Logger.info("Exception while trying to reset usb... %s", e2)
 
@@ -341,8 +324,8 @@ class CoreCameraIDS(CameraBase):
                 if self._object_detection:
                     try:
                         oldImg = image
-                        vis,bboxes = self.perform_mser(image)
-                        image = self.mser_part2(image,vis,bboxes)
+                        image,bboxes = self.perform_mser(image)
+                        # image = self.mser_part2(image,vis,bboxes)
                     except:
                         image = oldImg
                         e = sys.exc_info()[0]
