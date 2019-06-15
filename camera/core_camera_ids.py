@@ -19,6 +19,12 @@ import subprocess
 import numpy as np
 import cv2
 
+# from TIS uvc-exctensions/usb3.xml
+V4L2_EXPOSURE_TIME_US = 26862081 # 0x0199e201
+V4L2_GAIN_ABS = 26862084 # 0x0199e204
+V4L2_ROI_OFFSET_X = 26862104 # 0x0199e218
+V4L2_ROI_OFFSET_Y = 26862105 # 0x0199e219
+V4L2_ROI_AUTO_CENTER = 26862112 # 0x0199e220
 
 class CoreCameraIDS(CameraBase):
     """Implementation of ImagingSource Camera
@@ -41,6 +47,11 @@ class CoreCameraIDS(CameraBase):
         self._exposure_requested = False
         self._requested_exposure = 0
         self._exposure = 0
+
+        self._roi_requested = False
+        self._requested_roi = (-1,-1)
+        self._roi_offset = (-1, -1)
+
         self._object_detection = False
         self._fps = 0
         self._temp = ""
@@ -102,7 +113,6 @@ class CoreCameraIDS(CameraBase):
             if w < 0 or h < 0: return 0
             return w * h
 
-
         mser = cv2.MSER_create(
             _delta=5,
             _min_area=60,
@@ -137,133 +147,12 @@ class CoreCameraIDS(CameraBase):
             x, y, w, h = cv2.boundingRect(contour)
             bboxes.append(cv2.boundingRect(contour))
             cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        # Logger.info("1st MSER: Removing intersections: {0} boxes".format(len(bboxes)))
-        # for i in range(len(bboxes)):
-        #     j = i + 1
-        #     while j < len(bboxes):
-        #         if intersection(bboxes[i], bboxes[j]) > 0:
-        #             break
-        #         else:
-        #             j = j + 1
-        #     if j == len(bboxes):
-        #         x, y, w, h = bboxes[i]
-        #         cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 0, 255), 2)
-        # Logger.info("1st MSER Complete, bboxes={0}".format(len(bboxes)))
         image = Image.fromarray(cv2.cvtColor(vis, cv2.COLOR_BGR2RGB))
         return image, bboxes
 
-    def mser_part2(self, frame, vis, bboxes1):
-        import cv2
-        is_old_cv = True
-        Logger.info("Second mser (silica)")
-        def intersection(a, b):
-            x = max(a[0], b[0])
-            y = max(a[1], b[1])
-            w = min(a[0] + a[2], b[0] + b[2]) - x
-            h = min(a[1] + a[3], b[1] + b[3]) - y
-            if w < 0 or h < 0: return 0
-            return w * h
-
-        if is_old_cv:
-            mser = cv2.MSER()
-            # mser.set_
-        else:
-            mser = cv2.MSER_create(  # cv.MSER_create()
-                _delta=4,
-                _min_area=500,
-                _max_area=2000,
-                _max_variation=15.0,
-                _min_diversity=10.0,
-                _max_evolution=10,
-                _area_threshold=12.0,
-                _min_margin=2.9,
-                _edge_blur_size=10)
-
-        frame = np.array(frame)
-
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        if is_old_cv:
-            regions = mser.detect(gray, None)
-        else:
-            regions, q = mser.detectRegions(gray)
-
-        # polylines
-        hulls = [cv2.convexHull(p.reshape(-1, 1, 2)) for p in regions]
-        # cv.polylines(vis, hulls, 1, (0, 255, 0))
-
-        # boundingboxes
-        mask = np.zeros((frame.shape[0], frame.shape[1], 1), dtype=np.uint8)
-        mask = cv2.dilate(mask, np.ones((150, 150), np.uint8))
-
-        for contour in hulls:
-            cv2.drawContours(mask, [contour], -1, (255, 255, 255), -1)
-
-        bboxes = []
-        for i, contour in enumerate(hulls):
-            x, y, w, h = cv2.boundingRect(contour)
-            bboxes.append(cv2.boundingRect(contour))
-            cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-
-        bboxesAll = bboxes + bboxes1
-        for i in range(len(bboxes)):
-            j = i + 1
-            while j < len(bboxesAll):
-                if intersection(bboxes[i], bboxesAll[j]) > 0:
-                    break
-                else:
-                    j = j + 1
-            if j == len(bboxesAll):
-                x, y, w, h = bboxes[i]
-                cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-        Logger.info("2nd MSER Complete, bboxes={0}".format(len(bboxesAll)))
-        return Image.fromarray(cv2.cvtColor(vis, cv2.COLOR_BGR2RGB))
-
-    def perform_hough(self, frame, image):
-        # overlay related (todo: move into separate class)
-        import cv2
-        # import cv2.cv as cv
-
-        # convert from PIL RGB colorspace to opencv's BGR
-        color_imcv = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
-        gray_imcv = np.asarray(self._user_buffer)
-        circles = cv2.HoughCircles(gray_imcv, cv2.cv.CV_HOUGH_GRADIENT, 1, 2, np.array([]), 100, 10, 0, 10)
-        if circles is not None:
-            a, b, c = circles.shape
-            for i in range(b):
-                cv2.circle(color_imcv, (circles[0][i][0], circles[0][i][1]), circles[0][i][2], (0, 0, 255), 3,
-                           cv2.CV_AA)
-                cv2.circle(color_imcv, (circles[0][i][0], circles[0][i][1]), 2, (0, 255, 0), 3,
-                           cv2.CV_AA)  # draw center of circle
-            # convert back from opencv's BGR colorspace to PIL RGB
-            image = Image.fromarray(cv2.cvtColor(color_imcv, cv2.COLOR_BGR2RGB))
-
-    def usb_reset(self):
-        try:
-            driver = '"The Imaging Source Europe GmbH"'
-            lsusb_out = Popen("lsusb | grep -i %s" % driver, shell=True, bufsize=64,
-                              stdin=PIPE, stdout=PIPE, close_fds=True).stdout.read().strip().split()
-            bus = lsusb_out[1]
-            device = lsusb_out[3][:-1]
-            op = "/dev/bus/usb/%s/%s" % (bus, device)
-
-            r = subprocess.call(["/usr/bin/sudo", "/home/pi/usbreset/usbreset.o", op])
-            sleep(2)
-            # USBDEVFS_RESET = ord('U') << (4 * 2) | 20  # 21780 -- Linux IOCTL Flag Definition
-            # f = open(op, 'w', os.O_WRONLY)
-            # fcntl.ioctl(f, USBDEVFS_RESET, 0)
-            # f.close()
-            # sleep(2)
-        except Exception as e:
-            print("failed to reset device:", e.message)
-            e2 = sys.exc_info()[0]
-            Logger.info("Exception while trying to reset usb... %s", e2)
-
 
     def _v4l_init_video(self):
-        #self.usb_reset()
-        sleep(1.0)
+        # sleep(1.0)
         device = self._device
         (res_x, res_y) = self.resolution
         fourcc = self._fourcc
@@ -282,8 +171,6 @@ class CoreCameraIDS(CameraBase):
         while True:
             try:
                 video = self._v4l_init_video()
-                # set to the auto on startup
-                # video.set_exposure_absolute(400)
             except:
                 e = sys.exc_info()[0]
                 Logger.exception('Exception on video thread startup! %s', e)
@@ -338,10 +225,25 @@ class CoreCameraIDS(CameraBase):
                 Clock.schedule_once(self._update)
 
                 self._exposure = video.get_exposure_absolute()
+                self._roi_offset = (video.get_generic_int(V4L2_ROI_OFFSET_X),
+                                     video.get_generic_int(V4L2_ROI_OFFSET_Y))
 
                 if(self._exposure_requested):
                     video.set_exposure_absolute(self._requested_exposure)
                     self._exposure_requested = False
+
+                if(self._roi_requested):
+                    (x,y) = self._requested_roi
+                    # turn off auto-center
+                    video.set_generic_int(V4L2_ROI_AUTO_CENTER, 0)
+                    print("ROI OFFSET BEFORE: ({0},{1})".format(self._roi_offset[0], self._roi_offset[1]))
+                    video.set_generic_int(V4L2_ROI_OFFSET_X, x)
+                    video.set_generic_int(V4L2_ROI_OFFSET_Y, y)
+                    self._roi_requested = False
+
+                    self._roi_offset = (video.get_generic_int(V4L2_ROI_OFFSET_X),
+                                        video.get_generic_int(V4L2_ROI_OFFSET_Y))
+                    print("ROI OFFSET After: ({0},{1})".format(self._roi_offset[0], self._roi_offset[1]))
 
                 if(self.capture_requested or self.ref_requested):
                     # need to switch to high res mode
@@ -420,6 +322,13 @@ class CoreCameraIDS(CameraBase):
 
     def get_temp(self):
         return self._temp
+
+    def set_roi_offset(self, x, y):
+        self._requested_roi = (x, y)
+        self._roi_requested = True
+
+    def get_roi_offset(self):
+        return self._roi_offset
 
     def set_exposure(self, val):
         self._requested_exposure = val

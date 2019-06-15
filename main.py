@@ -68,6 +68,10 @@ class IDSGUI(App):
     def _start_count(self, val):
         fake_bin = int((np.random.randn() * 100) + 320)
         self._tracker_histogram.add_track(max(0, min(640, fake_bin)))
+        # (x,y) = self._camera.get_roi_offset()
+        # self._camera.set_roi_offset(x+50,y+50)
+
+
 
     def _toggle_object_detection(self, val):
         detecting = not self._camera.get_object_detection()

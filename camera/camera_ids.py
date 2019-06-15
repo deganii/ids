@@ -101,6 +101,12 @@ class CameraIDS(Image, CameraIDSBlackHole):
     def get_exposure(self):
         return self._camera.get_exposure()
 
+    def set_roi_offset(self, x,y):
+        return self._camera.set_roi_offset(x,y)
+
+    def get_roi_offset(self):
+        return self._camera.get_roi_offset()
+
     def set_object_detection(self, val):
         self._camera._object_detection = val
 
