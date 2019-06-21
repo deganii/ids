@@ -9,6 +9,7 @@ from camera.camera_ids import CameraIDS
 from camera.histogram import Histogram
 from camera.image_button import ImageButton
 from camera.tracker_histogram import TrackerHistogram
+from camera.roi_tracker import ROITracker
 from kivy.logger import Logger
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.anchorlayout import AnchorLayout
@@ -108,6 +109,11 @@ class IDSGUI(App):
         self._exposure.text = "Exposure: %d" % self._camera.get_exposure()
         self._centroid.text = "C: %d" % self._histogram.centroid
 
+    def _update_roi(self, roi, roi2):
+        roi = self._roi_tracker.roi_Offset
+        self._camera.set_roi_offset(roi[0], roi[1])
+
+
     def img_path(self, image_name):
         return os.path.join(os.path.dirname(__file__), 'img', image_name)
 
@@ -145,7 +151,6 @@ class IDSGUI(App):
         self._reset_scatter = ImageButton(size_hint=(0.1,0.1), pos_hint={'pos':(0.7,0.1)},
             source=self.img_path('reset_scatter.png'))
 
-
         self._logo = Image(size_hint=(0.3,0.2), pos_hint={'pos':(-0.03,0.84)},
             source=self.img_path('ids.png'))
 
@@ -156,7 +161,7 @@ class IDSGUI(App):
 
 
         self._fps = Label(text='FPS: 0', size_hint=(0.1,0.1),
-                          pos_hint={'pos':(0.8,0.9)}, color=white)
+                          pos_hint={'pos':(0.8,0.9)}, color=red)
         self._temp = Label(text='Temp: 0', size_hint=(0.1,0.1),
                           pos_hint={'pos':(0.6,0.9)}, color=white)
 
@@ -198,6 +203,10 @@ class IDSGUI(App):
         self._tracker_histogram = TrackerHistogram(
             size_hint=(0.2,0.25), pos_hint={'pos':(0.8,0.4)})
 
+        self._roi_tracker = ROITracker(self._camera.resolution,
+            size_hint=(0.2,0.25), pos_hint={'pos':(0.02,0.6)})
+        self._roi_tracker.bind(roi_Offset=self._update_roi)
+
         # self._demo.bind(on_press=self._show_demo_results)
         self._toggle.bind(on_press=self._led_toggle)
         self._snap.bind(on_press=self._start_count)
@@ -231,7 +240,7 @@ class IDSGUI(App):
         Clock.schedule_interval(self._update_fps, 2)
         layout.add_widget(self._toggle)
         layout.add_widget(self._logo)
-
+        layout.add_widget(self._roi_tracker)
         self._is_updating = False
         return layout
 

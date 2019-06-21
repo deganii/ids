@@ -5,7 +5,7 @@
       <paths name="RaspberryPI">
         <serverdata>
           <mappings>
-            <mapping deploy="/home/pi/IDS" local="$PROJECT_DIR$" />
+            <mapping deploy="/home/pi/ids" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>

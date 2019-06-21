@@ -54,7 +54,7 @@ class TrackerHistogram(Graph):
             self._raw_values.append(value)
             #display_bins = binned_statistic(self._raw_bins, self._raw_bins, bins=64, range=(0, 1))[0]
             np_bins = np.histogram(self._raw_values, 64, range=(0,640), density=False)[0].astype(np.float)
-            print(np_bins/np.max(np_bins))
+            # print(np_bins/np.max(np_bins))
             self._hist_plot.points = enumerate(np_bins/np.max(np_bins))
         except:
             e = sys.exc_info()[0]

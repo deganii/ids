@@ -190,74 +190,73 @@ class CoreCameraIDS(CameraBase):
                 try:
                     # Logger.debug("Obtaining a frame...")
                     select.select((video,), (), ())
+                    # image_data = video.read_and_queue()
                     image_data = video.read_and_queue()
                 except:
                     if not self._object_detection:
                         # don't rethrow if we're doing an anlysis...
                         raise
-                # Logger.debug("Obtained a frame of size %d", len(image_data))
-                image = Image.frombytes(self._mode, self._texture_size, image_data)
-                self._user_buffer = image
-
-                # convert to rgb for display on-screen
-                while (self._buffer is not None):
-                    # make this an event object?
-                    sleep(0.02)
-
-                #self._buffer = image.convert('RGB').tobytes("raw", "RGB")
-                image = image.convert('RGB')
-
-                # draw some hough circles on the RGB buffer as an overlay
-                if self._object_detection:
-                    try:
-                        oldImg = image
-                        image,bboxes = self.perform_mser(image)
-                        # image = self.mser_part2(image,vis,bboxes)
-                    except:
-                        image = oldImg
-                        e = sys.exc_info()[0]
-                        Logger.exception('Analysis Exception! %s', e)
-
-                # convert to RGB in order to display on-screen
-                self._buffer = image.tobytes("raw", "RGB")
+                #
+                # # Logger.debug("Obtained a frame of size %d", len(image_data))
+                # # should be done in C++ layer?
+                # image = Image.frombytes(self._mode, self._texture_size, image_data)
+                # self._user_buffer = image
+                #
+                # # convert to rgb for display on-screen
+                # while (self._buffer is not None):
+                #     # make this an event object?
+                #     sleep(0.02)
+                #
+                # #self._buffer = image.convert('RGB').tobytes("raw", "RGB")
+                # image = image.convert('RGB')
+                #
+                # # draw some hough circles on the RGB buffer as an overlay
+                # if self._object_detection:
+                #     try:
+                #         oldImg = image
+                #         image,bboxes = self.perform_mser(image)
+                #         # image = self.mser_part2(image,vis,bboxes)
+                #     except:
+                #         image = oldImg
+                #         e = sys.exc_info()[0]
+                #         Logger.exception('Analysis Exception! %s', e)
+                #
+                # # convert to RGB in order to display on-screen
+                # self._buffer = image.tobytes("raw", "RGB")
                 self._fps_tick()
-
-                Clock.schedule_once(self._update)
-
-                self._exposure = video.get_exposure_absolute()
-                self._roi_offset = (video.get_generic_int(V4L2_ROI_OFFSET_X),
-                                     video.get_generic_int(V4L2_ROI_OFFSET_Y))
-
-                if(self._exposure_requested):
-                    video.set_exposure_absolute(self._requested_exposure)
-                    self._exposure_requested = False
-
-                if(self._roi_requested):
-                    (x,y) = self._requested_roi
-                    # turn off auto-center
-                    video.set_generic_int(V4L2_ROI_AUTO_CENTER, 0)
-                    print("ROI OFFSET BEFORE: ({0},{1})".format(self._roi_offset[0], self._roi_offset[1]))
-                    video.set_generic_int(V4L2_ROI_OFFSET_X, x)
-                    video.set_generic_int(V4L2_ROI_OFFSET_Y, y)
-                    self._roi_requested = False
-
-                    self._roi_offset = (video.get_generic_int(V4L2_ROI_OFFSET_X),
-                                        video.get_generic_int(V4L2_ROI_OFFSET_Y))
-                    print("ROI OFFSET After: ({0},{1})".format(self._roi_offset[0], self._roi_offset[1]))
-
-                if(self.capture_requested or self.ref_requested):
-                    # need to switch to high res mode
-                    # video.close()
-                    # self._do_capture(self.ref_requested)
-                    ts = time.time()
-                    st = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d-%Hh-%Mm-%Ss')
-                    file = '/home/pi/2.131-captures/capture-%s.tiff' % st
-                    image.save(file, format='PNG')
-
-                    self.capture_requested = False
-                    self.ref_requested = False
-                    # reinitialize
-                    # video = self._v4l_init_video()
+                #
+                # Clock.schedule_once(self._update)
+                #
+                # self._exposure = video.get_exposure_absolute()
+                # #self._roi_offset = video.get_roi_offset()
+                #
+                # if(self._exposure_requested):
+                #     video.set_exposure_absolute(self._requested_exposure)
+                #     self._exposure_requested = False
+                #
+                # if(self._roi_requested):
+                #     (x,y) = self._requested_roi
+                #     # turn off auto-center
+                #     video.set_generic_int(V4L2_ROI_AUTO_CENTER, 0)
+                #
+                #     print("ROI OFFSET BEFORE: ({0},{1})".format(self._roi_offset[0], self._roi_offset[1]))
+                #     self._roi_offset = video.set_roi_offset(x,y)
+                #     self._roi_requested = False
+                #     print("ROI OFFSET After: ({0},{1})".format(self._roi_offset[0], self._roi_offset[1]))
+                #
+                # if(self.capture_requested or self.ref_requested):
+                #     # need to switch to high res mode
+                #     # video.close()
+                #     # self._do_capture(self.ref_requested)
+                #     ts = time.time()
+                #     st = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d-%Hh-%Mm-%Ss')
+                #     file = '/home/pi/2.131-captures/capture-%s.tiff' % st
+                #     image.save(file, format='PNG')
+                #
+                #     self.capture_requested = False
+                #     self.ref_requested = False
+                #     # reinitialize
+                #     # video = self._v4l_init_video()
             except:
                 e = sys.exc_info()[0]
                 Logger.exception('Exception! %s', e)
@@ -352,9 +351,9 @@ class CoreCameraIDS(CameraBase):
     def _update(self, dt):
         if self._buffer is None:
             return
-        Logger.debug("Rendering a frame...")
+        # Logger.debug("Rendering a frame...")
         if self._texture is None and self._texture_size is not None:
-            Logger.debug("Creating a new texture...")
+            # Logger.debug("Creating a new texture...")
             self._texture = Texture.create(
                 size=self._texture_size, colorfmt='rgb')
             self._texture.flip_vertical()
