@@ -1,5 +1,5 @@
 //  cc -I/opt/vc/include/ -L/opt/vc/lib/ -lv4l2 -lEGL -lGLESv2 -lbcm_host main.c -o main.out
-
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -16,12 +16,10 @@
 #include <GLES2/gl2.h>
 #include <VG/openvg.h>
 #include <VG/vgu.h>
-
-
 #include <time.h>
 
-/* Imaging Source UVC Camera Parameters */
-/* from TIS uvc-exctensions/usb3.xml*/
+/* Imaging Source UVC Camera Parameters
+   from TIS uvc-exctensions/usb3.xml    */
 #define TIS_V4L2_EXPOSURE_TIME_US   0x0199e201
 #define TIS_V4L2_GAIN_ABS           0x0199e204
 #define TIS_V4L2_ROI_OFFSET_X       0x0199e218
@@ -63,14 +61,20 @@ struct egl_manager {
 };
 
 EGL_STATE_T state, *p_state = &state;
+static volatile sig_atomic_t KILLED = 0;
+
+static void sig_handler(int _)
+{
+    (void)_;
+    KILLED = 1;
+}
+
 
 
 void init_egl(EGL_STATE_T *state)
 {
     EGLint num_configs;
     EGLBoolean result;
-
-    //bcm_host_init();
 
     static const EGLint attribute_list[] =
 	{
@@ -99,7 +103,7 @@ void init_egl(EGL_STATE_T *state)
     result = eglChooseConfig(state->display, attribute_list, &state->config, 1, &num_configs);
     assert(EGL_FALSE != result);
 
-     result = eglBindAPI(EGL_OPENVG_API);
+    result = eglBindAPI(EGL_OPENVG_API);
     assert(EGL_FALSE != result);
 
     // create an EGL rendering context
@@ -171,7 +175,7 @@ void egl_from_dispmanx(EGL_STATE_T *state,
     assert(EGL_FALSE != result);
 }
 
-/*void deinit(EsContext *state)
+void deinit(EGL_STATE_T *state)
 {
 	// free the egsImage vgDestroyPaint
 	eglMakeCurrent(state->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
@@ -179,224 +183,201 @@ void egl_from_dispmanx(EGL_STATE_T *state,
 	eglTerminate(state->display);
 	assert(eglGetError() == EGL_SUCCESS);
 	eglReleaseThread();
-}*/
-//VGImage img = 0;
-
-/*void init_frame(buffer *buf){
-
-}*/
-
-
+}
 
 static void xioctl(int fh, int request, void *arg)
 {
-        int r;
+    int r;
 
-        do {
-                r = v4l2_ioctl(fh, request, arg);
-        } while (r == -1 && ((errno == EINTR) || (errno == EAGAIN)));
+    do {
+            r = v4l2_ioctl(fh, request, arg);
+    } while (r == -1 && ((errno == EINTR) || (errno == EAGAIN)));
 
-        if (r == -1) {
-                fprintf(stderr, "error %d, %s\n", errno, strerror(errno));
-                exit(EXIT_FAILURE);
-        }
+    if (r == -1) {
+            fprintf(stderr, "error %d, %s\n", errno, strerror(errno));
+            exit(EXIT_FAILURE);
+    }
+}
+
+
+void diff(struct timespec *start, struct timespec *stop,
+                   struct timespec *result)
+{
+    if ((stop->tv_nsec - start->tv_nsec) < 0) {
+        result->tv_sec = stop->tv_sec - start->tv_sec - 1;
+        result->tv_nsec = stop->tv_nsec - start->tv_nsec + 1000000000;
+    } else {
+        result->tv_sec = stop->tv_sec - start->tv_sec;
+        result->tv_nsec = stop->tv_nsec - start->tv_nsec;
+    }
+
+    return;
 }
 
 int main(int argc, char **argv)
 {
-        struct v4l2_format              fmt;
-        struct v4l2_buffer              buf;
-        struct v4l2_requestbuffers      req;
-        enum v4l2_buf_type              type;
-        fd_set                          fds;
-        struct timeval                  tv;
-        int                             r, fd = -1;
-        unsigned int                    i, n_buffers;
-        char                            *dev_name = "/dev/video0";
-        char                            out_name[256];
-        FILE                            *fout;
-        struct buffer                   *buffers;
-        VGImage                         vg_img;
-        char                            fakebuf[640*480];
+    struct v4l2_format              fmt;
+    struct v4l2_buffer              buf;
+    struct v4l2_requestbuffers      req;
+    enum v4l2_buf_type              type;
+    fd_set                          fds;
+    struct timeval                  tv;
+    int                             r, fd = -1;
+    unsigned int                    i, n_buffers;
+    char                            *dev_name = "/dev/video0";
+    char                            out_name[256];
+    FILE                            *fout;
+    struct buffer                   *buffers;
+    VGImage                         vg_img;
+    EGL_DISPMANX_WINDOW_T           nativewindow;
+    struct timespec                 start, finish, diff_t;
+    const int                       TOTAL_FRAMES = 200;
 
-        memset (fakebuf,128,640*480);
+    //const int CAM_RES_X = 640, CAM_RES_Y = 480, CAM_FPS = 30;   // 100%
+    const int CAM_RES_X = 1280, CAM_RES_Y = 720, CAM_FPS = 30;  // 100%
+    //const int CAM_RES_X = 1280, CAM_RES_Y = 960, CAM_FPS = 25; // 100%
+    //const int CAM_RES_X = 1920, CAM_RES_Y = 1080, CAM_FPS = 15; // 100%
 
+    // NOTE VG_IMAGE has a maximum size of 2048x2048 (4194304) pixels
+    //const int CAM_RES_X = 2560, CAM_RES_Y = 1440, CAM_FPS = 10; // FAIL
+    //const int CAM_RES_X = 2560, CAM_RES_Y = 1920, CAM_FPS = 5; // FAIL
 
-        EGL_DISPMANX_WINDOW_T nativewindow;
+    fd = v4l2_open(dev_name, O_RDWR | O_NONBLOCK, 0);
+    if (fd < 0) {
+            perror("Cannot open device");
+            exit(EXIT_FAILURE);
+    }
 
-        init_egl(p_state);
-        init_dispmanx(&nativewindow);
-        egl_from_dispmanx(p_state, &nativewindow);
+    CLEAR(fmt);
+    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    fmt.fmt.pix.width       = CAM_RES_X;
+    fmt.fmt.pix.height      = CAM_RES_Y;
+    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_GREY; // v4l2_fourcc('G','R','E','Y');;
+    fmt.fmt.pix.field = V4L2_FIELD_ANY;
+    xioctl(fd, VIDIOC_S_FMT, &fmt);
+    if (fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_GREY) {
+            printf("Libv4l didn't accept GREY format. Can't proceed.\n");
+            exit(EXIT_FAILURE);
+    }
+    if ((fmt.fmt.pix.width != CAM_RES_X) || (fmt.fmt.pix.height != CAM_RES_Y))
+            printf("Warning: driver is sending image at %dx%d\n",
+                    fmt.fmt.pix.width, fmt.fmt.pix.height);
 
-        float c = 1.0;
-        float clearColor[4] = {c, c, c, c};  // white, no transparency
-        vgSetfv(VG_CLEAR_COLOR, 4, clearColor);
+    struct v4l2_streamparm setfps;
+    CLEAR(setfps);
+    setfps.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    setfps.parm.capture.timeperframe.numerator = 1;
+    setfps.parm.capture.timeperframe.denominator = CAM_FPS;
+    xioctl(fd, VIDIOC_S_PARM, &setfps);
+    printf("Framerate is: %d\n", setfps.parm.capture.timeperframe.denominator);
 
-        vgClear(0, 0, 640, 480);
+    CLEAR(req);
+    req.count = 2;
+    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    req.memory = V4L2_MEMORY_MMAP;
+    xioctl(fd, VIDIOC_REQBUFS, &req);
 
-        vg_img = vgCreateImage(VG_sL_8,
-                    640, 480,
-                    VG_IMAGE_QUALITY_NONANTIALIASED);
-        if (vg_img == VG_INVALID_HANDLE) {
-        fprintf(stderr, "Can't create simple image\n");
-        fprintf(stderr, "Error code %x\n", vgGetError());
-        exit(2);
-        }
+    buffers = calloc(req.count, sizeof(*buffers));
 
+    for (n_buffers = 0; n_buffers < req.count; ++n_buffers) {
+            CLEAR(buf);
 
-        // bcm_host_init();
+            buf.type        = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            buf.memory      = V4L2_MEMORY_MMAP;
+            buf.index       = n_buffers;
 
-        // OpenVG needs a surface to draw on, and EGL provides that
-        //init_ogl(&state);
+            xioctl(fd, VIDIOC_QUERYBUF, &buf);
 
-        //glClearColor(0.0, 0.0, 0.0, 1.0);
-        //glClear(GL_COLOR_BUFFER_BIT);
-        //glFlush();
-        //eglSwapBuffers(state.display, state.surface);
-        // also try VG_lL8, VG_sL_8, VG_A_8
+            buffers[n_buffers].length = buf.length;
+            buffers[n_buffers].start = v4l2_mmap(NULL, buf.length,
+                          PROT_READ | PROT_WRITE, MAP_SHARED,
+                          fd, buf.m.offset);
 
+            if (MAP_FAILED == buffers[n_buffers].start) {
+                    perror("mmap");
+                    exit(EXIT_FAILURE);
+            }
+    }
 
-            // connect the context to the surface
+    for (i = 0; i < n_buffers; ++i) {
+            CLEAR(buf);
+            buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            buf.memory = V4L2_MEMORY_MMAP;
+            buf.index = i;
+            xioctl(fd, VIDIOC_QBUF, &buf);
+    }
+    type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+
+    xioctl(fd, VIDIOC_STREAMON, &type);
+
+    init_egl(p_state);
+    init_dispmanx(&nativewindow);
+    egl_from_dispmanx(p_state, &nativewindow);
     if (eglMakeCurrent(state.display, state.surface,
                        state.surface, state.context) == EGL_FALSE) {
         perror("Failed to eglMakeCurrent");
         exit(EXIT_FAILURE);
     }
-        vg_img = vgCreateImage(VG_sL_8, 640,480, VG_IMAGE_QUALITY_NONANTIALIASED);
+    vg_img = vgCreateImage(VG_sL_8, CAM_RES_X,CAM_RES_Y, VG_IMAGE_QUALITY_NONANTIALIASED);
+    if (vg_img == VG_INVALID_HANDLE) {
+        fprintf(stderr, "Can't create vg_img\n");
+        fprintf(stderr, "Error code %x\n", vgGetError());
+        exit(2);
+    }
 
-        if (vg_img == VG_INVALID_HANDLE) {
-            fprintf(stderr, "Can't create vg_img\n");
-            fprintf(stderr, "Error code %x\n", vgGetError());
-            exit(2);
-        }
-        vgClearImage(vg_img, 0, 0, 640, 480);
+    int w_offset = ((int)nativewindow.width - (int)fmt.fmt.pix.width) / 2;
+    int h_offset = ((int)nativewindow.height - (int)fmt.fmt.pix.height) / 2;
+    printf("Native Window Size: (%d,%d)\n", nativewindow.width, nativewindow.height);
+    printf("Camera Format Size: (%d,%d)\n", fmt.fmt.pix.width, fmt.fmt.pix.height);
+    printf("VG_IMAGE Offsets: (%d,%d)\n", w_offset, h_offset);
+    double cpu_time_used;
 
-        fd = v4l2_open(dev_name, O_RDWR | O_NONBLOCK, 0);
-        if (fd < 0) {
-                perror("Cannot open device");
-                exit(EXIT_FAILURE);
-        }
+    clock_gettime( CLOCK_MONOTONIC, &start );
+    signal(SIGINT, sig_handler);
 
-        CLEAR(fmt);
-        fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        fmt.fmt.pix.width       = 640;
-        fmt.fmt.pix.height      = 480;
-        fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_GREY; // v4l2_fourcc('G','R','E','Y');;
-        fmt.fmt.pix.field = V4L2_FIELD_ANY;
-        xioctl(fd, VIDIOC_S_FMT, &fmt);
-        if (fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_GREY) {
-                printf("Libv4l didn't accept GREY format. Can't proceed.\n");
-                exit(EXIT_FAILURE);
-        }
-        if ((fmt.fmt.pix.width != 640) || (fmt.fmt.pix.height != 480))
-                printf("Warning: driver is sending image at %dx%d\n",
-                        fmt.fmt.pix.width, fmt.fmt.pix.height);
+    for (i = 0; (i < TOTAL_FRAMES) && !KILLED; i++) {
 
-        CLEAR(req);
-        req.count = 2;
-        req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        req.memory = V4L2_MEMORY_MMAP;
-        xioctl(fd, VIDIOC_REQBUFS, &req);
+            do {
+                    FD_ZERO(&fds);
+                    FD_SET(fd, &fds);
 
-        buffers = calloc(req.count, sizeof(*buffers));
-        for (n_buffers = 0; n_buffers < req.count; ++n_buffers) {
-                CLEAR(buf);
+                    // Timeout
+                    tv.tv_sec = 2;
+                    tv.tv_usec = 0;
 
-                buf.type        = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-                buf.memory      = V4L2_MEMORY_MMAP;
-                buf.index       = n_buffers;
+                    r = select(fd + 1, &fds, NULL, NULL, &tv);
+            } while ((r == -1 && (errno = EINTR)));
+            if (r == -1) {
+                    perror("select");
+                    return errno;
+            }
 
-                xioctl(fd, VIDIOC_QUERYBUF, &buf);
+            buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            buf.memory = V4L2_MEMORY_MMAP;
+            xioctl(fd, VIDIOC_DQBUF, &buf);
 
-                buffers[n_buffers].length = buf.length;
-                buffers[n_buffers].start = v4l2_mmap(NULL, buf.length,
-                              PROT_READ | PROT_WRITE, MAP_SHARED,
-                              fd, buf.m.offset);
+            //printf("Got frame %03d, size %d bytes\n", i, buf.bytesused);
+            vgImageSubData(vg_img, buffers[buf.index].start, fmt.fmt.pix.width,
+                VG_sL_8, 0, 0, fmt.fmt.pix.width, fmt.fmt.pix.height);
 
-                if (MAP_FAILED == buffers[n_buffers].start) {
-                        perror("mmap");
-                        exit(EXIT_FAILURE);
-                }
-        }
+            vgSetPixels(w_offset, h_offset, vg_img, 0, 0, fmt.fmt.pix.width, fmt.fmt.pix.height);
+            eglSwapBuffers(p_state->display, p_state->surface);
 
-        for (i = 0; i < n_buffers; ++i) {
-                CLEAR(buf);
-                buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-                buf.memory = V4L2_MEMORY_MMAP;
-                buf.index = i;
-                xioctl(fd, VIDIOC_QBUF, &buf);
-        }
-        type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            xioctl(fd, VIDIOC_QBUF, &buf);
+    }
+    clock_gettime( CLOCK_MONOTONIC, &finish );
+    diff(&start, &finish, &diff_t);
+    float diff_secs = diff_t.tv_sec + (diff_t.tv_nsec / 1.0e9);
+    printf("FPS: %.2f, Calculated over %d frames, Total time: %.2fs\n",
+        (i+1) / diff_secs, i+1, diff_secs);
 
-        xioctl(fd, VIDIOC_STREAMON, &type);
-        for (i = 0; i < 50; i++) {
-                do {
-                        FD_ZERO(&fds);
-                        FD_SET(fd, &fds);
+    type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    xioctl(fd, VIDIOC_STREAMOFF, &type);
+    for (i = 0; i < n_buffers; ++i)
+            v4l2_munmap(buffers[i].start, buffers[i].length);
+    v4l2_close(fd);
 
-                        /* Timeout. */
-                        tv.tv_sec = 2;
-                        tv.tv_usec = 0;
-
-                        r = select(fd + 1, &fds, NULL, NULL, &tv);
-                } while ((r == -1 && (errno = EINTR)));
-                if (r == -1) {
-                        perror("select");
-                        return errno;
-                }
-
-                //CLEAR(buf); // do we need to clear?
-                buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-                buf.memory = V4L2_MEMORY_MMAP;
-                xioctl(fd, VIDIOC_DQBUF, &buf);
-
-                //printf("Got frame %03d, size %d bytes\n", i, buf.bytesused);
-                //printf("Value at pixel (%d,%d) = %d\n", 200,300, ((char*)buffers[buf.index].start)[200*640+300]);
-                // vgImageSubData(vg_img, fakebuf, fmt.fmt.pix.width,
-                vgImageSubData(vg_img, buffers[buf.index].start, fmt.fmt.pix.width,
-                    VG_sL_8, 0, 0, fmt.fmt.pix.width, fmt.fmt.pix.height);
-                // center the image at (80,0)
-                //int w_offset = (state.width - fmt.fmt.pix.width) / 2;
-                // vgSetPixels(w_offset, 0, vg_img, 0, 0, fmt.fmt.pix.width, fmt.fmt.pix.height);
-                vgSetPixels(0, 0, vg_img, 0, 0, fmt.fmt.pix.width, fmt.fmt.pix.height);
-                eglSwapBuffers(p_state->display, p_state->surface);
-
-                //vgSeti(VG_MATRIX_MODE, VG_MATRIX_IMAGE_USER_TO_SURFACE);
-                //vgLoadIdentity();
-                //vgTranslate(200, 30);
-
-                //vgDrawImage(vg_img);
-
-
-                //vgDrawImage(vg_img);
-                // eglSwapBuffers(state.display, state.surface);
-                // do we need this?
-                //eglSwapBuffers(state.display, state.surface);
-
-                vgFlush();
-                /*sprintf(out_name, "out%03d.ppm", i);
-                fout = fopen(out_name, "w");
-                if (!fout) {
-                        perror("Cannot open image");
-                        exit(EXIT_FAILURE);
-                }
-                fprintf(fout, "P6\n%d %d 255\n",
-                        fmt.fmt.pix.width, fmt.fmt.pix.height);
-                fwrite(buffers[buf.index].start, buf.bytesused, 1, fout);
-                fclose(fout);*/
-
-                xioctl(fd, VIDIOC_QBUF, &buf);
-        }
-
-        sleep(3);
-        type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        xioctl(fd, VIDIOC_STREAMOFF, &type);
-        for (i = 0; i < n_buffers; ++i)
-                v4l2_munmap(buffers[i].start, buffers[i].length);
-        v4l2_close(fd);
-
-        vgDestroyImage(vg_img);
-        //deinit(&state);
-        return 0;
-
+    vgDestroyImage(vg_img);
+    deinit(&state);
+    return 0;
 }
