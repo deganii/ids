@@ -1,4 +1,4 @@
-//  cc -I/opt/vc/include/ -L/opt/vc/lib/ -lv4l2 -lEGL -lGLESv2 -lbcm_host main.c -o main.out
+// cc -Wall -g -DHAVE_LIBOPENMAX=2 -DOMX -DOMX_SKIP64BIT -DUSE_EXTERNAL_OMX -DHAVE_LIBBCM_HOST -DUSE_EXTERNAL_LIBBCM_HOST -DUSE_VCHIQ_ARM -I/opt/vc/include/ -I/opt/vc/src/hello_pi/libs/ilclient -L/opt/vc/lib/ -L/opt/vc/src/hello_pi/libs/ilclient/ -lv4l2 -lEGL -lGLESv2 -lbcm_host -lopenmaxil  main.c -lilclient -L/opt/vc/lib/ -lvcos -lvchiq_arm -lpthread -lrt -lm -L/opt/vc/src/hello_pi/libs/ilclient -o main.out
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,17 +6,22 @@
 #include <assert.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <time.h>
+#include <string.h>
+
 #include <fcntl.h>
 #include <linux/videodev2.h>
 #include <sys/mman.h>
 #include <libv4l2.h>
+
 #include "bcm_host.h"
+#include "ilclient.h"
+
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES2/gl2.h>
 #include <VG/openvg.h>
 #include <VG/vgu.h>
-#include <time.h>
 
 /* Imaging Source UVC Camera Parameters
    from TIS uvc-exctensions/usb3.xml    */
@@ -69,8 +74,6 @@ static void sig_handler(int _)
     KILLED = 1;
 }
 
-
-
 void init_egl(EGL_STATE_T *state)
 {
     EGLint num_configs;
@@ -84,12 +87,6 @@ void init_egl(EGL_STATE_T *state)
 	    EGL_ALPHA_SIZE, 0,
 	    EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
 	    EGL_RENDERABLE_TYPE, EGL_OPENVG_BIT,
-	    EGL_NONE
-	};
-
-    static const EGLint context_attributes[] =
-	{
-	    EGL_CONTEXT_CLIENT_VERSION, 2,
 	    EGL_NONE
 	};
 
@@ -110,7 +107,6 @@ void init_egl(EGL_STATE_T *state)
     state->context = eglCreateContext(state->display,
 				      state->config, EGL_NO_CONTEXT,
 				      NULL);
-				      // breaks if we use this: context_attributes);
     assert(state->context!=EGL_NO_CONTEXT);
 }
 
@@ -175,7 +171,7 @@ void egl_from_dispmanx(EGL_STATE_T *state,
     assert(EGL_FALSE != result);
 }
 
-void deinit(EGL_STATE_T *state)
+void egl_deinit(EGL_STATE_T *state)
 {
 	// free the egsImage vgDestroyPaint
 	eglMakeCurrent(state->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
@@ -199,6 +195,25 @@ static void xioctl(int fh, int request, void *arg)
     }
 }
 
+static void print_def(OMX_PARAM_PORTDEFINITIONTYPE def)
+{
+   printf("Port %u: %s %u/%u %u %u %s,%s,%s %ux%u %ux%u @%u %u\n",
+          def.nPortIndex,
+          def.eDir == OMX_DirInput ? "in" : "out",
+          def.nBufferCountActual,
+          def.nBufferCountMin,
+          def.nBufferSize,
+          def.nBufferAlignment,
+          def.bEnabled ? "enabled" : "disabled",
+          def.bPopulated ? "populated" : "not pop.",
+          def.bBuffersContiguous ? "contig." : "not cont.",
+          def.format.video.nFrameWidth,
+          def.format.video.nFrameHeight,
+          def.format.video.nStride,
+          def.format.video.nSliceHeight,
+          def.format.video.xFramerate, def.format.video.eColorFormat);
+}
+
 
 void diff(struct timespec *start, struct timespec *stop,
                    struct timespec *result)
@@ -213,6 +228,14 @@ void diff(struct timespec *start, struct timespec *stop,
 
     return;
 }
+//const int CAM_RES_X = 640, CAM_RES_Y = 480, CAM_FPS = 30;   // 100% / 100% when encoding
+const int CAM_RES_X = 1280, CAM_RES_Y = 720, CAM_FPS = 30;  // 100% / 50% when encoding
+//const int CAM_RES_X = 1280, CAM_RES_Y = 960, CAM_FPS = 25; // 100%
+//const int CAM_RES_X = 1920, CAM_RES_Y = 1080, CAM_FPS = 15; // 100%
+
+// NOTE VG_IMAGE has a maximum size of 2048x2048 (4194304) pixels
+//const int CAM_RES_X = 2560, CAM_RES_Y = 1440, CAM_FPS = 10; // FAIL
+//const int CAM_RES_X = 2560, CAM_RES_Y = 1920, CAM_FPS = 5; // FAIL
 
 int main(int argc, char **argv)
 {
@@ -225,22 +248,27 @@ int main(int argc, char **argv)
     int                             r, fd = -1;
     unsigned int                    i, n_buffers;
     char                            *dev_name = "/dev/video0";
-    char                            out_name[256];
-    FILE                            *fout;
     struct buffer                   *buffers;
     VGImage                         vg_img;
     EGL_DISPMANX_WINDOW_T           nativewindow;
+
+    OMX_VIDEO_PARAM_PORTFORMATTYPE  format;
+    OMX_PARAM_PORTDEFINITIONTYPE    def;
+    COMPONENT_T                     *video_encode = NULL;
+    COMPONENT_T                     *list[5];
+    OMX_BUFFERHEADERTYPE            *omx_buf;
+    OMX_BUFFERHEADERTYPE            *out;
+    OMX_ERRORTYPE                   omx_r;
+    ILCLIENT_T                      *client;
+
+    char                            *video_file = "capture.h264";
+    FILE                            *outf;
+    int                             rgb_len = CAM_RES_X*CAM_RES_Y*3;
     struct timespec                 start, finish, diff_t;
     const int                       TOTAL_FRAMES = 200;
 
-    //const int CAM_RES_X = 640, CAM_RES_Y = 480, CAM_FPS = 30;   // 100%
-    const int CAM_RES_X = 1280, CAM_RES_Y = 720, CAM_FPS = 30;  // 100%
-    //const int CAM_RES_X = 1280, CAM_RES_Y = 960, CAM_FPS = 25; // 100%
-    //const int CAM_RES_X = 1920, CAM_RES_Y = 1080, CAM_FPS = 15; // 100%
 
-    // NOTE VG_IMAGE has a maximum size of 2048x2048 (4194304) pixels
-    //const int CAM_RES_X = 2560, CAM_RES_Y = 1440, CAM_FPS = 10; // FAIL
-    //const int CAM_RES_X = 2560, CAM_RES_Y = 1920, CAM_FPS = 5; // FAIL
+
 
     fd = v4l2_open(dev_name, O_RDWR | O_NONBLOCK, 0);
     if (fd < 0) {
@@ -278,6 +306,7 @@ int main(int argc, char **argv)
     xioctl(fd, VIDIOC_REQBUFS, &req);
 
     buffers = calloc(req.count, sizeof(*buffers));
+
 
     for (n_buffers = 0; n_buffers < req.count; ++n_buffers) {
             CLEAR(buf);
@@ -330,11 +359,149 @@ int main(int argc, char **argv)
     printf("Native Window Size: (%d,%d)\n", nativewindow.width, nativewindow.height);
     printf("Camera Format Size: (%d,%d)\n", fmt.fmt.pix.width, fmt.fmt.pix.height);
     printf("VG_IMAGE Offsets: (%d,%d)\n", w_offset, h_offset);
-    double cpu_time_used;
+
+
+    // ------------------------------------
+    // BEGIN OMX ENCODER INITIALIZATION
+    // ------------------------------------
+
+
+    memset(list, 0, sizeof(list));
+
+    if ((client = ilclient_init()) == NULL) {
+      return -3;
+    }
+
+    if (OMX_Init() != OMX_ErrorNone) {
+      ilclient_destroy(client);
+      return -4;
+    }
+
+    // create video_encode
+    omx_r = ilclient_create_component(client, &video_encode, "video_encode",
+                                 ILCLIENT_DISABLE_ALL_PORTS |
+                                 ILCLIENT_ENABLE_INPUT_BUFFERS |
+                                 ILCLIENT_ENABLE_OUTPUT_BUFFERS);
+    if (omx_r != 0) {
+      printf
+         ("ilclient_create_component() for video_encode failed with %x!\n",
+          omx_r);
+      exit(1);
+    }
+    list[0] = video_encode;
+
+    // get current settings of video_encode component from port 200
+    memset(&def, 0, sizeof(OMX_PARAM_PORTDEFINITIONTYPE));
+    def.nSize = sizeof(OMX_PARAM_PORTDEFINITIONTYPE);
+    def.nVersion.nVersion = OMX_VERSION;
+    def.nPortIndex = 200;
+
+    if (OMX_GetParameter
+       (ILC_GET_HANDLE(video_encode), OMX_IndexParamPortDefinition,
+        &def) != OMX_ErrorNone) {
+      printf("%s:%d: OMX_GetParameter() for video_encode port 200 failed!\n",
+             __FUNCTION__, __LINE__);
+      exit(1);
+    }
+
+    print_def(def);
+
+    // Port 200: in 1/1 115200 16 enabled,not pop.,not cont. 320x240 320x240 @1966080 20
+    def.format.video.nFrameWidth = CAM_RES_X;
+    def.format.video.nFrameHeight = CAM_RES_Y;
+    def.format.video.xFramerate = 30 << 16;
+    def.format.video.nSliceHeight = def.format.video.nFrameHeight;
+    def.format.video.nStride = def.format.video.nFrameWidth * 3;
+    // def.format.video.eColorFormat = OMX_COLOR_FormatL8; // DOESN'T WORK!
+    def.format.video.eColorFormat = OMX_COLOR_Format24bitRGB888;
+    //def.format.video.eCompressionFormat = OMX_VIDEO_CodingUnused;
+
+    print_def(def);
+
+    r = OMX_SetParameter(ILC_GET_HANDLE(video_encode),
+                        OMX_IndexParamPortDefinition, &def);
+    if (r != OMX_ErrorNone) {
+      printf
+         ("%s:%d: OMX_SetParameter() for video_encode port 200 failed with %x!\n",
+          __FUNCTION__, __LINE__, r);
+      exit(1);
+    }
+
+    memset(&format, 0, sizeof(OMX_VIDEO_PARAM_PORTFORMATTYPE));
+    format.nSize = sizeof(OMX_VIDEO_PARAM_PORTFORMATTYPE);
+    format.nVersion.nVersion = OMX_VERSION;
+    format.nPortIndex = 201;
+    format.eCompressionFormat = OMX_VIDEO_CodingAVC;
+
+    printf("OMX_SetParameter for video_encode:201...\n");
+    omx_r = OMX_SetParameter(ILC_GET_HANDLE(video_encode),
+                        OMX_IndexParamVideoPortFormat, &format);
+    if (omx_r != OMX_ErrorNone) {
+      printf
+         ("%s:%d: OMX_SetParameter() for video_encode port 201 failed with %x!\n",
+          __FUNCTION__, __LINE__, omx_r);
+      exit(1);
+    }
+
+    OMX_VIDEO_PARAM_BITRATETYPE bitrateType;
+    // set current bitrate to 1Mbit
+    memset(&bitrateType, 0, sizeof(OMX_VIDEO_PARAM_BITRATETYPE));
+    bitrateType.nSize = sizeof(OMX_VIDEO_PARAM_BITRATETYPE);
+    bitrateType.nVersion.nVersion = OMX_VERSION;
+    bitrateType.eControlRate = OMX_Video_ControlRateVariable;
+    bitrateType.nTargetBitrate = 1000000;
+    bitrateType.nPortIndex = 201;
+    omx_r = OMX_SetParameter(ILC_GET_HANDLE(video_encode),
+                       OMX_IndexParamVideoBitrate, &bitrateType);
+    if (omx_r != OMX_ErrorNone) {
+      printf
+        ("%s:%d: OMX_SetParameter() for bitrate for video_encode port 201 failed with %x!\n",
+         __FUNCTION__, __LINE__, omx_r);
+      exit(1);
+    }
+
+
+    // get current bitrate
+    memset(&bitrateType, 0, sizeof(OMX_VIDEO_PARAM_BITRATETYPE));
+    bitrateType.nSize = sizeof(OMX_VIDEO_PARAM_BITRATETYPE);
+    bitrateType.nVersion.nVersion = OMX_VERSION;
+    bitrateType.nPortIndex = 201;
+
+    if (OMX_GetParameter
+       (ILC_GET_HANDLE(video_encode), OMX_IndexParamVideoBitrate,
+       &bitrateType) != OMX_ErrorNone) {
+      printf("%s:%d: OMX_GetParameter() for video_encode for bitrate port 201 failed!\n",
+            __FUNCTION__, __LINE__);
+      exit(1);
+    }
+    printf("Current Bitrate=%u\n",bitrateType.nTargetBitrate);
+
+    if (ilclient_change_component_state(video_encode, OMX_StateIdle) == -1) {
+      printf
+         ("%s:%d: ilclient_change_component_state(video_encode, OMX_StateIdle) failed",
+          __FUNCTION__, __LINE__);
+    }
+
+    if (ilclient_enable_port_buffers(video_encode, 200, NULL, NULL, NULL) != 0) {
+      printf("enabling port buffers for 200 failed!\n");
+      exit(1);
+    }
+
+    if (ilclient_enable_port_buffers(video_encode, 201, NULL, NULL, NULL) != 0) {
+      printf("enabling port buffers for 201 failed!\n");
+      exit(1);
+    }
+
+    ilclient_change_component_state(video_encode, OMX_StateExecuting);
+
+    outf = fopen(video_file, "w");
+    if (outf == NULL) {
+      printf("Failed to open '%s' for writing video\n", video_file);
+      exit(1);
+    }
 
     clock_gettime( CLOCK_MONOTONIC, &start );
     signal(SIGINT, sig_handler);
-
     for (i = 0; (i < TOTAL_FRAMES) && !KILLED; i++) {
 
             do {
@@ -363,6 +530,52 @@ int main(int argc, char **argv)
             vgSetPixels(w_offset, h_offset, vg_img, 0, 0, fmt.fmt.pix.width, fmt.fmt.pix.height);
             eglSwapBuffers(p_state->display, p_state->surface);
 
+            omx_buf = ilclient_get_input_buffer(video_encode, 200, 1);
+            if (omx_buf == NULL) {
+                printf("No buffers available\n");
+            } else {
+
+             // in the future, try to avoid this RGB conversion and pass the L8 buffer directly
+             char *buf_s = buffers[buf.index].start;
+             for(int l2c = 0; l2c < buf.bytesused; l2c++){
+                omx_buf->pBuffer[3*l2c] = buf_s[l2c];
+                omx_buf->pBuffer[3*l2c+1] = buf_s[l2c];
+                omx_buf->pBuffer[3*l2c+2] = buf_s[l2c];
+             }
+             omx_buf->nFilledLen = rgb_len;
+
+             if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(video_encode), omx_buf) !=
+                 OMX_ErrorNone) {
+                printf("Error emptying buffer!\n");
+             }
+
+             out = ilclient_get_output_buffer(video_encode, 201, 1);
+
+             if (out != NULL) {
+                if (out->nFlags & OMX_BUFFERFLAG_CODECCONFIG) {
+                   int q;
+                   for (q = 0; q < out->nFilledLen; q++)
+                      printf("%x ", out->pBuffer[q]);
+                   printf("\n");
+                }
+
+                omx_r = fwrite(out->pBuffer, 1, out->nFilledLen, outf);
+                if (omx_r != out->nFilledLen) {
+                   printf("fwrite: Error emptying buffer: %d!\n", r);
+                } else {
+                   // printf("Writing frame %d/%d, len %u\n", i, TOTAL_FRAMES, out->nFilledLen);
+                }
+                out->nFilledLen = 0;
+             } else {
+                printf("Not getting it :(\n");
+             }
+
+             omx_r = OMX_FillThisBuffer(ILC_GET_HANDLE(video_encode), out);
+             if (omx_r != OMX_ErrorNone) {
+                printf("Error sending buffer for filling: %x\n", omx_r);
+             }
+            }
+
             xioctl(fd, VIDIOC_QBUF, &buf);
     }
     clock_gettime( CLOCK_MONOTONIC, &finish );
@@ -378,6 +591,24 @@ int main(int argc, char **argv)
     v4l2_close(fd);
 
     vgDestroyImage(vg_img);
-    deinit(&state);
+    egl_deinit(&state);
+
+    fclose(outf);
+
+    printf("Teardown.\n");
+
+    printf("disabling port buffers for 200 and 201...\n");
+    ilclient_disable_port_buffers(video_encode, 200, NULL, NULL, NULL);
+    ilclient_disable_port_buffers(video_encode, 201, NULL, NULL, NULL);
+
+    ilclient_state_transition(list, OMX_StateIdle);
+    ilclient_state_transition(list, OMX_StateLoaded);
+
+    ilclient_cleanup_components(list);
+
+    OMX_Deinit();
+
+    ilclient_destroy(client);
+
     return 0;
 }
