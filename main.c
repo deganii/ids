@@ -25,12 +25,23 @@
 
 /* Imaging Source UVC Camera Parameters
    from TIS uvc-exctensions/usb3.xml    */
-#define TIS_V4L2_EXPOSURE_TIME_US   0x0199e201
-#define TIS_V4L2_GAIN_ABS           0x0199e204
-#define TIS_V4L2_ROI_OFFSET_X       0x0199e218
-#define TIS_V4L2_ROI_OFFSET_Y       0x0199e219
-#define TIS_V4L2_ROI_AUTO_CENTER    0x0199e220
-
+#define TIS_V4L2_EXPOSURE_TIME_US          0x0199e201   // V4L2_CTRL_TYPE_INTEGER
+#define TIS_V4L2_GAIN_ABS                  0x0199e204   // V4L2_CTRL_TYPE_INTEGER
+#define TIS_V4L2_TRIGGER                   0x0199e208   // V4L2_CTRL_TYPE_BOOLEAN
+#define TIS_V4L2_SOFTWARE_TRIGGER          0x0199e209   // V4L2_CTRL_TYPE_BUTTON
+#define TIS_V4L2_TRIGGER_DELAY             0x0199e210   // V4L2_CTRL_TYPE_INTEGER
+#define TIS_V4L2_STROBE_ENABLE             0x0199e211   // V4L2_CTRL_TYPE_BOOLEAN
+#define TIS_V4L2_STROBE_POLARITY           0x0199e212   // V4L2_CTRL_TYPE_BOOLEAN
+#define TIS_V4L2_STROBE_EXPOSURE           0x0199e213   // V4L2_CTRL_TYPE_BOOLEAN
+#define TIS_V4L2_STROBE_DURATION           0x0199e214   // V4L2_CTRL_TYPE_INTEGER
+#define TIS_V4L2_STROBE_DELAY              0x0199e215   // V4L2_CTRL_TYPE_INTEGER
+#define TIS_V4L2_GPOUT                     0x0199e216   // V4L2_CTRL_TYPE_BOOLEAN
+#define TIS_V4L2_GPIN                      0x0199e217   // V4L2_CTRL_TYPE_BOOLEAN
+#define TIS_V4L2_ROI_OFFSET_X              0x0199e218   // V4L2_CTRL_TYPE_INTEGER
+#define TIS_V4L2_ROI_OFFSET_Y              0x0199e219   // V4L2_CTRL_TYPE_INTEGER
+#define TIS_V4L2_ROI_AUTO_CENTER           0x0199e220   // V4L2_CTRL_TYPE_BOOLEAN
+#define TIS_V4L2_OVERRIDE_SCANNING_MODE    0x0199e257   // V4L2_CTRL_TYPE_INTEGER
+#define TIS_V4L2_TRIGGER                   0x0199e208   // V4L2_CTRL_TYPE_BOOLEAN
 
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 
@@ -242,6 +253,7 @@ int main(int argc, char **argv)
     struct v4l2_format              fmt;
     struct v4l2_buffer              buf;
     struct v4l2_requestbuffers      req;
+    struct v4l2_control             ctrl;
     enum v4l2_buf_type              type;
     fd_set                          fds;
     struct timeval                  tv;
@@ -265,9 +277,10 @@ int main(int argc, char **argv)
     FILE                            *outf;
     int                             rgb_len = CAM_RES_X*CAM_RES_Y*3;
     struct timespec                 start, finish, diff_t;
-    const int                       TOTAL_FRAMES = 200;
+    //const int                       TOTAL_FRAMES = 200;
 
-
+    // stderr to stdout
+    dup2(1, 2);
 
 
     fd = v4l2_open(dev_name, O_RDWR | O_NONBLOCK, 0);
@@ -304,6 +317,13 @@ int main(int argc, char **argv)
     req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     req.memory = V4L2_MEMORY_MMAP;
     xioctl(fd, VIDIOC_REQBUFS, &req);
+
+    //int binning = 0;
+    CLEAR(ctrl);
+    ctrl.id = TIS_V4L2_OVERRIDE_SCANNING_MODE;
+    ctrl.value = 2;
+    xioctl(fd, VIDIOC_S_CTRL, &ctrl);
+    printf("Binning is: %d\n", ctrl.value);
 
     buffers = calloc(req.count, sizeof(*buffers));
 
@@ -502,7 +522,7 @@ int main(int argc, char **argv)
 
     clock_gettime( CLOCK_MONOTONIC, &start );
     signal(SIGINT, sig_handler);
-    for (i = 0; (i < TOTAL_FRAMES) && !KILLED; i++) {
+    for (i = 0; !KILLED; i++) {
 
             do {
                     FD_ZERO(&fds);
@@ -537,10 +557,11 @@ int main(int argc, char **argv)
 
              // in the future, try to avoid this RGB conversion and pass the L8 buffer directly
              char *buf_s = buffers[buf.index].start;
+             int c2l = 0;
              for(int l2c = 0; l2c < buf.bytesused; l2c++){
-                omx_buf->pBuffer[3*l2c] = buf_s[l2c];
-                omx_buf->pBuffer[3*l2c+1] = buf_s[l2c];
-                omx_buf->pBuffer[3*l2c+2] = buf_s[l2c];
+                omx_buf->pBuffer[c2l++] = buf_s[l2c];
+                omx_buf->pBuffer[c2l++] = buf_s[l2c];
+                omx_buf->pBuffer[c2l++] = buf_s[l2c];
              }
              omx_buf->nFilledLen = rgb_len;
 
@@ -577,12 +598,25 @@ int main(int argc, char **argv)
             }
 
             xioctl(fd, VIDIOC_QBUF, &buf);
+
+            if(i%50 == 0) {
+                clock_gettime( CLOCK_MONOTONIC, &finish );
+                diff(&start, &finish, &diff_t);
+                float diff_secs = diff_t.tv_sec + (diff_t.tv_nsec / 1.0e9);
+                if(i == 0){
+                    printf("\n\n");
+                    fflush(stdout);
+                }
+                printf("\e[0EFPS: %.2f, Calculated over %06d frames, Total time: %.2fs",
+                    (i+1) / diff_secs, i, diff_secs);
+                fflush(stdout);
+            }
     }
-    clock_gettime( CLOCK_MONOTONIC, &finish );
+    /*clock_gettime( CLOCK_MONOTONIC, &finish );
     diff(&start, &finish, &diff_t);
     float diff_secs = diff_t.tv_sec + (diff_t.tv_nsec / 1.0e9);
     printf("FPS: %.2f, Calculated over %d frames, Total time: %.2fs\n",
-        (i+1) / diff_secs, i+1, diff_secs);
+        (i+1) / diff_secs, i+1, diff_secs);*/
 
     type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     xioctl(fd, VIDIOC_STREAMOFF, &type);
@@ -609,6 +643,9 @@ int main(int argc, char **argv)
     OMX_Deinit();
 
     ilclient_destroy(client);
+
+    printf("\n\n");
+    fflush(stdout);
 
     return 0;
 }
