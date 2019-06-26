@@ -3,207 +3,28 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
-#include <assert.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <sys/time.h>
 #include <time.h>
 #include <string.h>
 
-#include <fcntl.h>
-#include <linux/videodev2.h>
-#include <sys/mman.h>
-#include <libv4l2.h>
-
-#include "bcm_host.h"
 #include "ilclient.h"
+#include "display.h"
+#include "tis_v4l2.h"
+#include "touch.h"
+#include "ui.h"
 
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
-#include <GLES2/gl2.h>
-#include <VG/openvg.h>
-#include <VG/vgu.h>
-
-/* Imaging Source UVC Camera Parameters
-   from TIS uvc-exctensions/usb3.xml    */
-#define TIS_V4L2_EXPOSURE_TIME_US          0x0199e201   // V4L2_CTRL_TYPE_INTEGER
-#define TIS_V4L2_GAIN_ABS                  0x0199e204   // V4L2_CTRL_TYPE_INTEGER
-#define TIS_V4L2_TRIGGER                   0x0199e208   // V4L2_CTRL_TYPE_BOOLEAN
-#define TIS_V4L2_SOFTWARE_TRIGGER          0x0199e209   // V4L2_CTRL_TYPE_BUTTON
-#define TIS_V4L2_TRIGGER_DELAY             0x0199e210   // V4L2_CTRL_TYPE_INTEGER
-#define TIS_V4L2_STROBE_ENABLE             0x0199e211   // V4L2_CTRL_TYPE_BOOLEAN
-#define TIS_V4L2_STROBE_POLARITY           0x0199e212   // V4L2_CTRL_TYPE_BOOLEAN
-#define TIS_V4L2_STROBE_EXPOSURE           0x0199e213   // V4L2_CTRL_TYPE_BOOLEAN
-#define TIS_V4L2_STROBE_DURATION           0x0199e214   // V4L2_CTRL_TYPE_INTEGER
-#define TIS_V4L2_STROBE_DELAY              0x0199e215   // V4L2_CTRL_TYPE_INTEGER
-#define TIS_V4L2_GPOUT                     0x0199e216   // V4L2_CTRL_TYPE_BOOLEAN
-#define TIS_V4L2_GPIN                      0x0199e217   // V4L2_CTRL_TYPE_BOOLEAN
-#define TIS_V4L2_ROI_OFFSET_X              0x0199e218   // V4L2_CTRL_TYPE_INTEGER
-#define TIS_V4L2_ROI_OFFSET_Y              0x0199e219   // V4L2_CTRL_TYPE_INTEGER
-#define TIS_V4L2_ROI_AUTO_CENTER           0x0199e220   // V4L2_CTRL_TYPE_BOOLEAN
-#define TIS_V4L2_OVERRIDE_SCANNING_MODE    0x0199e257   // V4L2_CTRL_TYPE_INTEGER
-#define TIS_V4L2_TRIGGER                   0x0199e208   // V4L2_CTRL_TYPE_BOOLEAN
-
-#define CLEAR(x) memset(&(x), 0, sizeof(x))
-
-struct buffer {
-  void *start;
-  size_t length;
-};
-
-typedef struct
-{
-    EGLDisplay display;
-    EGLSurface surface;
-    EGLContext context;
-    EGLConfig config;
-} EGL_STATE_T;
-
-struct egl_manager {
-    EGLNativeDisplayType xdpy;
-    EGLNativeWindowType xwin;
-    EGLNativePixmapType xpix;
-
-    EGLDisplay dpy;
-    EGLConfig conf;
-    EGLContext ctx;
-
-    EGLSurface win;
-    EGLSurface pix;
-    EGLSurface pbuf;
-    EGLImageKHR image;
-
-    EGLBoolean verbose;
-    EGLint major, minor;
-};
 
 EGL_STATE_T state, *p_state = &state;
+TouchState touch_state, *p_touch_state = &touch_state;
+
 static volatile sig_atomic_t KILLED = 0;
 
 static void sig_handler(int _)
 {
     (void)_;
     KILLED = 1;
-}
-
-void init_egl(EGL_STATE_T *state)
-{
-    EGLint num_configs;
-    EGLBoolean result;
-
-    static const EGLint attribute_list[] =
-	{
-	    EGL_RED_SIZE, 5,
-	    EGL_GREEN_SIZE, 6,
-	    EGL_BLUE_SIZE, 5,
-	    EGL_ALPHA_SIZE, 0,
-	    EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
-	    EGL_RENDERABLE_TYPE, EGL_OPENVG_BIT,
-	    EGL_NONE
-	};
-
-    // get an EGL display connection
-    state->display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-
-    // initialize the EGL display connection
-    result = eglInitialize(state->display, NULL, NULL);
-
-    // get an appropriate EGL frame buffer configuration
-    result = eglChooseConfig(state->display, attribute_list, &state->config, 1, &num_configs);
-    assert(EGL_FALSE != result);
-
-    result = eglBindAPI(EGL_OPENVG_API);
-    assert(EGL_FALSE != result);
-
-    // create an EGL rendering context
-    state->context = eglCreateContext(state->display,
-				      state->config, EGL_NO_CONTEXT,
-				      NULL);
-    assert(state->context!=EGL_NO_CONTEXT);
-}
-
-void init_dispmanx(EGL_DISPMANX_WINDOW_T *nativewindow) {
-    int32_t success = 0;
-    uint32_t screen_width;
-    uint32_t screen_height;
-
-    DISPMANX_ELEMENT_HANDLE_T dispman_element;
-    DISPMANX_DISPLAY_HANDLE_T dispman_display;
-    DISPMANX_UPDATE_HANDLE_T dispman_update;
-    VC_RECT_T dst_rect;
-    VC_RECT_T src_rect;
-
-    bcm_host_init();
-
-    // create an EGL window surface
-    success = graphics_get_display_size(0 /* LCD */,
-					&screen_width,
-					&screen_height);
-    assert( success >= 0 );
-
-    dst_rect.x = 0;
-    dst_rect.y = 0;
-    dst_rect.width = screen_width;
-    dst_rect.height = screen_height;
-
-    src_rect.x = 0;
-    src_rect.y = 0;
-    src_rect.width = screen_width << 16;
-    src_rect.height = screen_height << 16;
-
-    dispman_display = vc_dispmanx_display_open( 0 /* LCD */);
-    dispman_update = vc_dispmanx_update_start( 0 );
-
-    dispman_element =
-	vc_dispmanx_element_add(dispman_update, dispman_display,
-				0/*layer*/, &dst_rect, 0/*src*/,
-				&src_rect, DISPMANX_PROTECTION_NONE,
-				0 /*alpha*/, 0/*clamp*/, 0/*transform*/);
-
-    // Build an EGL_DISPMANX_WINDOW_T from the Dispmanx window
-    nativewindow->element = dispman_element;
-    nativewindow->width = screen_width;
-    nativewindow->height = screen_height;
-    vc_dispmanx_update_submit_sync(dispman_update);
-
-    printf("Got a Dispmanx window\n");
-}
-
-void egl_from_dispmanx(EGL_STATE_T *state,
-		       EGL_DISPMANX_WINDOW_T *nativewindow) {
-    EGLBoolean result;
-
-    state->surface = eglCreateWindowSurface(state->display,
-					    state->config,
-					    nativewindow, NULL );
-    assert(state->surface != EGL_NO_SURFACE);
-
-    // connect the context to the surface
-    result = eglMakeCurrent(state->display, state->surface, state->surface, state->context);
-    assert(EGL_FALSE != result);
-}
-
-void egl_deinit(EGL_STATE_T *state)
-{
-	// free the egsImage vgDestroyPaint
-	eglMakeCurrent(state->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-	assert(eglGetError() == EGL_SUCCESS);
-	eglTerminate(state->display);
-	assert(eglGetError() == EGL_SUCCESS);
-	eglReleaseThread();
-}
-
-static void xioctl(int fh, int request, void *arg)
-{
-    int r;
-
-    do {
-            r = v4l2_ioctl(fh, request, arg);
-    } while (r == -1 && ((errno == EINTR) || (errno == EAGAIN)));
-
-    if (r == -1) {
-            fprintf(stderr, "error %d, %s\n", errno, strerror(errno));
-            exit(EXIT_FAILURE);
-    }
 }
 
 static void print_def(OMX_PARAM_PORTDEFINITIONTYPE def)
@@ -225,7 +46,6 @@ static void print_def(OMX_PARAM_PORTDEFINITIONTYPE def)
           def.format.video.xFramerate, def.format.video.eColorFormat);
 }
 
-
 void diff(struct timespec *start, struct timespec *stop,
                    struct timespec *result)
 {
@@ -239,15 +59,14 @@ void diff(struct timespec *start, struct timespec *stop,
 
     return;
 }
+
 //const int CAM_RES_X = 640, CAM_RES_Y = 480, CAM_FPS = 30;   // 100% / 100% when encoding
 const int CAM_RES_X = 1280, CAM_RES_Y = 720, CAM_FPS = 30;  // 100% / 50% when encoding
 //const int CAM_RES_X = 1280, CAM_RES_Y = 960, CAM_FPS = 25; // 100%
 //const int CAM_RES_X = 1920, CAM_RES_Y = 1080, CAM_FPS = 15; // 100%
-
 // NOTE VG_IMAGE has a maximum size of 2048x2048 (4194304) pixels
 //const int CAM_RES_X = 2560, CAM_RES_Y = 1440, CAM_FPS = 10; // FAIL
 //const int CAM_RES_X = 2560, CAM_RES_Y = 1920, CAM_FPS = 5; // FAIL
-
 int main(int argc, char **argv)
 {
     struct v4l2_format              fmt;
@@ -260,6 +79,7 @@ int main(int argc, char **argv)
     int                             r, fd = -1;
     unsigned int                    i, n_buffers;
     char                            *dev_name = "/dev/video0";
+    char                            *input_name = "/dev/input/event0";
     struct buffer                   *buffers;
     VGImage                         vg_img;
     EGL_DISPMANX_WINDOW_T           nativewindow;
@@ -280,8 +100,9 @@ int main(int argc, char **argv)
     //const int                       TOTAL_FRAMES = 200;
 
     // stderr to stdout
-    dup2(1, 2);
+    // dup2(1, 2);
 
+    init_touch(input_name, p_touch_state);
 
     fd = v4l2_open(dev_name, O_RDWR | O_NONBLOCK, 0);
     if (fd < 0) {
@@ -543,12 +364,20 @@ int main(int argc, char **argv)
             buf.memory = V4L2_MEMORY_MMAP;
             xioctl(fd, VIDIOC_DQBUF, &buf);
 
-            //printf("Got frame %03d, size %d bytes\n", i, buf.bytesused);
+
             vgImageSubData(vg_img, buffers[buf.index].start, fmt.fmt.pix.width,
                 VG_sL_8, 0, 0, fmt.fmt.pix.width, fmt.fmt.pix.height);
-
             vgSetPixels(w_offset, h_offset, vg_img, 0, 0, fmt.fmt.pix.width, fmt.fmt.pix.height);
+
+
+            build_ROI_selector(100,100,200,200);
+            build_ROI_selector(400,100,200,200);
+
+
             eglSwapBuffers(p_state->display, p_state->surface);
+
+
+
 
             omx_buf = ilclient_get_input_buffer(video_encode, 200, 1);
             if (omx_buf == NULL) {
@@ -598,6 +427,9 @@ int main(int argc, char **argv)
             }
 
             xioctl(fd, VIDIOC_QBUF, &buf);
+
+            // handle touch events
+            loop_device(p_touch_state);
 
             if(i%50 == 0) {
                 clock_gettime( CLOCK_MONOTONIC, &finish );
