@@ -1,35 +1,26 @@
 #include <mtdev.h>
+#include <mtdev.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <search.h>
 #ifndef TOUCH_H
 #define TOUCH_H
-
-
-/*
-typedef struct {
-
-} SlotItem;
-
+#define MAX_SLOTS 5
 
 typedef struct {
-    SlotItem *items;
-    int numItems;
     int tracking_id;
-    int x;
-    int y;
-} Slot;
+    int position_x;
+    int position_y;
+} touch_slot;
 
-*/
+
 typedef struct
 {
     struct mtdev dev;
 	int fd;
-	//Slot slots[5];
+	int last_slot;
+	touch_slot slots[MAX_SLOTS];
 } TouchState;
-
-
 
 int init_touch(char *device, TouchState *state);
 int deinit_touch(TouchState*state);

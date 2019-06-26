@@ -3,15 +3,6 @@
 /* year-proof millisecond event time */
 typedef __u64 mstime_t;
 
-static int use_event(const struct input_event *ev)
-{
-#if 0
-	return ev->type == EV_ABS && mtdev_is_absmt(ev->code);
-#else
-	return 1;
-#endif
-}
-
 void print_event(const struct input_event *ev) {
 	static const mstime_t ms = 1000;
 	static int slot;
@@ -51,18 +42,25 @@ void print_event(const struct input_event *ev) {
 		evtime, slot, ev->type, code_str, ev->value);
 }
 
-//#define BITMASK(x) (1U << (x))
-//#define BITONES(x) (BITMASK(x) - 1U)
-//#define GETBIT(m, x) (((m) >> (x)) & 1U)
-//#define SETBIT(m, x) (m |= BITMASK(x))
-//#define CLEARBIT(m, x) (m &= ~BITMASK(x))
-//#define MODBIT(m, x, b) ((b) ? SETBIT(m, x) : CLEARBIT(m, x))
-
-void print_state(const struct mtdev_state *dev_state) {
+void print_state(TouchState *state) {
     // print the current state
-    dev_state->
+    int active_id = (int)(state->last_slot);
 
-
+    if(active_id > -1){
+        touch_slot active_slot = state->slots[active_id];
+        if(active_slot.tracking_id > -1){
+            fprintf(stderr, "ACTIVE SLOT: %02d TRACKING_ID: %03d  POSITION: (%03d,%03d)\n",
+                active_id, active_slot.tracking_id, active_slot.position_x, active_slot.position_y);
+        } else{
+            fprintf(stderr, "NO ACTIVE SLOTS\n");
+        }
+        for(int i = 0; i < MAX_SLOTS; i++){
+            if(i != active_id && state->slots[i].tracking_id > -1){
+                fprintf(stderr, "OTHER  SLOT: %02d TRACKING_ID: %03d  POSITION: (%03d,%03d)\n",
+                    i, active_slot.tracking_id, active_slot.position_x, active_slot.position_y);
+            }
+        }
+	}
 }
 
 
@@ -88,20 +86,45 @@ int deinit_touch(TouchState*state)
     return close(state->fd); // close I/O
 }
 
+static int process_event(TouchState*state, const struct input_event *ev)
+{
+    switch(ev->code) {
+        case ABS_MT_SLOT:
+			state->last_slot = ev->value;
+			break;
+        case ABS_MT_POSITION_X:
+			state->slots[state->last_slot].position_x = ev->value;
+			break;
+        case ABS_MT_POSITION_Y:
+			state->slots[state->last_slot].position_y = ev->value;
+			break;
+        case ABS_MT_TRACKING_ID:
+			state->slots[state->last_slot].tracking_id = ev->value;
+			break;
+		case BTN_TOUCH:
+			break;
+		case ABS_X:
+			break;
+		case ABS_Y:
+			break;
+    }
+    return 1;
+}
+
 void loop_device(TouchState*state)
 {
     struct input_event ev;
     /* extract all available processed events */
     while (mtdev_get(&(state->dev), state->fd, &ev, 1) > 0) {
-        if (use_event(&ev))
+        if (process_event(state, &ev)){
             print_event(&ev);
+            print_state(state);
+        }
     }
 }
 
 int init_touch(char *device, TouchState*state)
 {
-    hcreate(30);
-
 	int fd = open(device, O_RDONLY | O_NONBLOCK);
 	if (fd < 0) {
 		fprintf(stderr, "error: could not open device\n");
@@ -120,5 +143,9 @@ int init_touch(char *device, TouchState*state)
 	}
 	show_props(&dev);
     state->fd = fd;
+    state->last_slot=0;
+    for(int i = 0; i< MAX_SLOTS; i++){
+        state->slots[i].tracking_id = -1;
+    }
 	return fd;
 }
