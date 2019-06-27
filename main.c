@@ -8,24 +8,44 @@
 #include <sys/time.h>
 #include <time.h>
 #include <string.h>
+#include <linux/videodev2.h>
 
-#include "omx_encoder.h"
+#include "ilclient.h"
 #include "display.h"
 #include "tis_v4l2.h"
 #include "touch.h"
 #include "ui.h"
 
 
-// video thread, UI update thread
 EGL_STATE_T state, *p_state = &state;
-static TouchState touch_state, *p_touch_state = &touch_state;
-static video_state vid_state, *p_vid_state = &vid_state;
+TouchState touch_state, *p_touch_state = &touch_state;
+video_state vid_state, *p_vid_state= &vid_state;
 
 static volatile sig_atomic_t KILLED = 0;
+
 static void sig_handler(int _)
 {
     (void)_;
     KILLED = 1;
+}
+
+static void print_def(OMX_PARAM_PORTDEFINITIONTYPE def)
+{
+   printf("Port %u: %s %u/%u %u %u %s,%s,%s %ux%u %ux%u @%u %u\n",
+          def.nPortIndex,
+          def.eDir == OMX_DirInput ? "in" : "out",
+          def.nBufferCountActual,
+          def.nBufferCountMin,
+          def.nBufferSize,
+          def.nBufferAlignment,
+          def.bEnabled ? "enabled" : "disabled",
+          def.bPopulated ? "populated" : "not pop.",
+          def.bBuffersContiguous ? "contig." : "not cont.",
+          def.format.video.nFrameWidth,
+          def.format.video.nFrameHeight,
+          def.format.video.nStride,
+          def.format.video.nSliceHeight,
+          def.format.video.xFramerate, def.format.video.eColorFormat);
 }
 
 void diff(struct timespec *start, struct timespec *stop,
@@ -51,10 +71,18 @@ const int CAM_RES_X = 1280, CAM_RES_Y = 720, CAM_FPS = 30;  // 100% / 17-19 when
 //const int CAM_RES_X = 2560, CAM_RES_Y = 1920, CAM_FPS = 5; // FAIL
 int main(int argc, char **argv)
 {
-    unsigned int                    i;
+    struct v4l2_format              fmt;
+    struct v4l2_buffer              buf;
+    //struct v4l2_requestbuffers      req;
+    //struct v4l2_control             ctrl;
+    enum v4l2_buf_type              type;
+    fd_set                          fds;
+    struct timeval                  tv;
+    int                             r, fd = -1;
+    unsigned int                    i, n_buffers;
     char                            *dev_name = "/dev/video0";
     char                            *input_name = "/dev/input/event0";
-
+    struct buffer                   *buffers;
     VGImage                         vg_img;
     EGL_DISPMANX_WINDOW_T           nativewindow;
 
@@ -70,12 +98,17 @@ int main(int argc, char **argv)
     char                            *video_file = "capture.h264";
     FILE                            *outf;
     int                             rgb_len = CAM_RES_X*CAM_RES_Y*3;
-    struct timespec                 start;
-    //struct buffer                   *frame;
+    struct timespec                 start, finish, diff_t;
 
     init_touch(input_name, p_touch_state);
-    init_video(dev_name, CAM_RES_X, CAM_RES_Y, V4L2_PIX_FMT_GREY, CAM_FPS, 0, p_vid_state);
 
+
+    init_video(dev_name,CAM_RES_X,CAM_RES_Y,V4L2_PIX_FMT_GREY,30,0,&vid_state);
+    fd = vid_state.fd;
+    buffers = vid_state.buffers;
+    n_buffers = vid_state.n_buffers;
+    fmt.fmt.pix.width = vid_state.fmt_width;
+    fmt.fmt.pix.height = vid_state.fmt_height;
 
     init_egl(p_state);
     init_dispmanx(&nativewindow);
@@ -92,10 +125,10 @@ int main(int argc, char **argv)
         exit(2);
     }
 
-    int w_offset = ((int)nativewindow.width - (int)p_vid_state->fmt_width) / 2;
-    int h_offset = ((int)nativewindow.height - (int)p_vid_state->fmt_height) / 2;
+    int w_offset = ((int)nativewindow.width - (int)fmt.fmt.pix.width) / 2;
+    int h_offset = ((int)nativewindow.height - (int)fmt.fmt.pix.height) / 2;
     printf("Native Window Size: (%d,%d)\n", nativewindow.width, nativewindow.height);
-    printf("Camera Format Size: (%d,%d)\n", p_vid_state->fmt_width, p_vid_state->fmt_height);
+    printf("Camera Format Size: (%d,%d)\n", fmt.fmt.pix.width, fmt.fmt.pix.height);
     printf("VG_IMAGE Offsets: (%d,%d)\n", w_offset, h_offset);
 
 
@@ -156,12 +189,12 @@ int main(int argc, char **argv)
 
     print_def(def);
 
-    omx_r = OMX_SetParameter(ILC_GET_HANDLE(video_encode),
+    r = OMX_SetParameter(ILC_GET_HANDLE(video_encode),
                         OMX_IndexParamPortDefinition, &def);
-    if (omx_r != OMX_ErrorNone) {
+    if (r != OMX_ErrorNone) {
       printf
          ("%s:%d: OMX_SetParameter() for video_encode port 200 failed with %x!\n",
-          __FUNCTION__, __LINE__, omx_r);
+          __FUNCTION__, __LINE__, r);
       exit(1);
     }
 
@@ -237,48 +270,26 @@ int main(int argc, char **argv)
       printf("Failed to open '%s' for writing video\n", video_file);
       exit(1);
     }
+
     clock_gettime( CLOCK_MONOTONIC, &start );
     signal(SIGINT, sig_handler);
-
-
-
-    fd_set                          fds;
-    struct timeval                  tv;
-    int                             r;
-    struct v4l2_buffer              buf;
-
+    struct buffer*buffer_ptr;
     for (i = 0; !KILLED; i++) {
-            //frame = get_frame(p_vid_state);
-            do {
-                FD_ZERO(&fds);
-                FD_SET(p_vid_state->fd, &fds);
 
-                // Timeout
-                tv.tv_sec = 2;
-                tv.tv_usec = 0;
+            buffer_ptr = get_frame(&vid_state);
+            buf = vid_state.buf;
 
-                r = select(p_vid_state->fd + 1, &fds, NULL, NULL, &tv);
-            } while ((r == -1 && (errno = EINTR)));
-            if (r == -1) {
-                perror("select");
-                return errno;
-            }
+            vgImageSubData(vg_img, buffer_ptr->start, fmt.fmt.pix.width,
+                VG_sL_8, 0, 0, fmt.fmt.pix.width, fmt.fmt.pix.height);
+            vgSetPixels(w_offset, h_offset, vg_img, 0, 0, fmt.fmt.pix.width, fmt.fmt.pix.height);
 
-            buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-            buf.memory = V4L2_MEMORY_MMAP;
-            xioctl(p_vid_state->fd, VIDIOC_DQBUF, &buf);
-
-            vgImageSubData(vg_img, p_vid_state->buffers[buf.index].start, p_vid_state->fmt_width,
-                VG_sL_8, 0, 0, p_vid_state->fmt_width, p_vid_state->fmt_height);
-
-
-            //vgImageSubData(vg_img, frame->start, p_vid_state->fmt_width,
-            //    VG_sL_8, 0, 0, p_vid_state->fmt_width, p_vid_state->fmt_height);
-            vgSetPixels(w_offset, h_offset, vg_img, 0, 0, p_vid_state->fmt_width, p_vid_state->fmt_height);
 
             build_ROI_selector(100,100,200,200, 1140, 650);
 
             eglSwapBuffers(p_state->display, p_state->surface);
+
+
+
 
             omx_buf = ilclient_get_input_buffer(video_encode, 200, 1);
             if (omx_buf == NULL) {
@@ -286,13 +297,13 @@ int main(int argc, char **argv)
             } else {
 
              // in the future, try to avoid this RGB conversion and pass the L8 buffer directly
-             /*char *buf_s = frame->start;
+             char *buf_s = buffer_ptr->start; //buffers[buf.index].start;
              int c2l = 0;
-             for(int l2c = 0; l2c < p_vid_state->buf.bytesused; l2c++){
+             for(int l2c = 0; l2c < buf.bytesused; l2c++){
                 omx_buf->pBuffer[c2l++] = buf_s[l2c];
                 omx_buf->pBuffer[c2l++] = buf_s[l2c];
                 omx_buf->pBuffer[c2l++] = buf_s[l2c];
-             }*/
+             }
              omx_buf->nFilledLen = rgb_len;
 
              if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(video_encode), omx_buf) !=
@@ -312,7 +323,7 @@ int main(int argc, char **argv)
 
                 omx_r = fwrite(out->pBuffer, 1, out->nFilledLen, outf);
                 if (omx_r != out->nFilledLen) {
-                   printf("fwrite: Error emptying buffer: %d!\n", omx_r);
+                   printf("fwrite: Error emptying buffer: %d!\n", r);
                 } else {
                    // printf("Writing frame %d/%d, len %u\n", i, TOTAL_FRAMES, out->nFilledLen);
                 }
@@ -327,13 +338,12 @@ int main(int argc, char **argv)
              }
             }
 
-            queue_buffer(p_vid_state);
+            queue_buffer(&vid_state);
 
             // handle touch events
             loop_device(p_touch_state);
-            queue_buffer(p_vid_state);
 
-            /*if(i%50 == 0) {
+            if(i%50 == 0) {
                 clock_gettime( CLOCK_MONOTONIC, &finish );
                 diff(&start, &finish, &diff_t);
                 float diff_secs = diff_t.tv_sec + (diff_t.tv_nsec / 1.0e9);
@@ -344,15 +354,27 @@ int main(int argc, char **argv)
                 printf("\e[0EFPS: %.2f, Calculated over %06d frames, Total time: %.2fs",
                     (i+1) / diff_secs, i, diff_secs);
                 fflush(stdout);
-            }*/
+            }
     }
-    deinit_video(p_vid_state);
+    /*clock_gettime( CLOCK_MONOTONIC, &finish );
+    diff(&start, &finish, &diff_t);
+    float diff_secs = diff_t.tv_sec + (diff_t.tv_nsec / 1.0e9);
+    printf("FPS: %.2f, Calculated over %d frames, Total time: %.2fs\n",
+        (i+1) / diff_secs, i+1, diff_secs);*/
+
+    type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    xioctl(fd, VIDIOC_STREAMOFF, &type);
+    for (i = 0; i < n_buffers; ++i)
+            v4l2_munmap(buffers[i].start, buffers[i].length);
+    v4l2_close(fd);
+
     vgDestroyImage(vg_img);
     egl_deinit(&state);
 
-
     fclose(outf);
+
     printf("Teardown.\n");
+
     printf("disabling port buffers for 200 and 201...\n");
     ilclient_disable_port_buffers(video_encode, 200, NULL, NULL, NULL);
     ilclient_disable_port_buffers(video_encode, 201, NULL, NULL, NULL);
