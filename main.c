@@ -63,26 +63,22 @@ void diff(struct timespec *start, struct timespec *stop,
 }
 
 //const int CAM_RES_X = 640, CAM_RES_Y = 480, CAM_FPS = 30;   // 100% / 100% when encoding
-const int CAM_RES_X = 1280, CAM_RES_Y = 720, CAM_FPS = 30;  // 100% / 17-19 when encoding
+const int CAM_RES_X = 1280, CAM_RES_Y = 720, CAM_FPS = 30, CAM_BINNING=2;  // 100% / 17-19 when encoding
 //const int CAM_RES_X = 1280, CAM_RES_Y = 960, CAM_FPS = 25; // 100%
 //const int CAM_RES_X = 1920, CAM_RES_Y = 1080, CAM_FPS = 15; // 100%
 // NOTE VG_IMAGE has a maximum size of 2048x2048 (4194304) pixels
 //const int CAM_RES_X = 2560, CAM_RES_Y = 1440, CAM_FPS = 10; // FAIL
 //const int CAM_RES_X = 2560, CAM_RES_Y = 1920, CAM_FPS = 5; // FAIL
+
+
 int main(int argc, char **argv)
 {
     struct v4l2_format              fmt;
     struct v4l2_buffer              buf;
-    //struct v4l2_requestbuffers      req;
-    //struct v4l2_control             ctrl;
-    enum v4l2_buf_type              type;
-    fd_set                          fds;
-    struct timeval                  tv;
-    int                             r, fd = -1;
-    unsigned int                    i, n_buffers;
+    int                             r;
+    unsigned int                    i;
     char                            *dev_name = "/dev/video0";
     char                            *input_name = "/dev/input/event0";
-    struct buffer                   *buffers;
     VGImage                         vg_img;
     EGL_DISPMANX_WINDOW_T           nativewindow;
 
@@ -102,11 +98,7 @@ int main(int argc, char **argv)
 
     init_touch(input_name, p_touch_state);
 
-
-    init_video(dev_name,CAM_RES_X,CAM_RES_Y,V4L2_PIX_FMT_GREY,30,0,&vid_state);
-    fd = vid_state.fd;
-    buffers = vid_state.buffers;
-    n_buffers = vid_state.n_buffers;
+    init_video(dev_name,CAM_RES_X,CAM_RES_Y,V4L2_PIX_FMT_GREY,CAM_FPS,CAM_BINNING,p_vid_state);
     fmt.fmt.pix.width = vid_state.fmt_width;
     fmt.fmt.pix.height = vid_state.fmt_height;
 
@@ -273,23 +265,19 @@ int main(int argc, char **argv)
 
     clock_gettime( CLOCK_MONOTONIC, &start );
     signal(SIGINT, sig_handler);
-    struct buffer*buffer_ptr;
+    struct buffer*frame;
     for (i = 0; !KILLED; i++) {
 
-            buffer_ptr = get_frame(&vid_state);
+            frame = get_frame(&vid_state);
             buf = vid_state.buf;
 
-            vgImageSubData(vg_img, buffer_ptr->start, fmt.fmt.pix.width,
+            vgImageSubData(vg_img, frame->start, fmt.fmt.pix.width,
                 VG_sL_8, 0, 0, fmt.fmt.pix.width, fmt.fmt.pix.height);
             vgSetPixels(w_offset, h_offset, vg_img, 0, 0, fmt.fmt.pix.width, fmt.fmt.pix.height);
-
 
             build_ROI_selector(100,100,200,200, 1140, 650);
 
             eglSwapBuffers(p_state->display, p_state->surface);
-
-
-
 
             omx_buf = ilclient_get_input_buffer(video_encode, 200, 1);
             if (omx_buf == NULL) {
@@ -297,7 +285,7 @@ int main(int argc, char **argv)
             } else {
 
              // in the future, try to avoid this RGB conversion and pass the L8 buffer directly
-             char *buf_s = buffer_ptr->start; //buffers[buf.index].start;
+             char *buf_s = frame->start; //buffers[buf.index].start;
              int c2l = 0;
              for(int l2c = 0; l2c < buf.bytesused; l2c++){
                 omx_buf->pBuffer[c2l++] = buf_s[l2c];
@@ -356,17 +344,9 @@ int main(int argc, char **argv)
                 fflush(stdout);
             }
     }
-    /*clock_gettime( CLOCK_MONOTONIC, &finish );
-    diff(&start, &finish, &diff_t);
-    float diff_secs = diff_t.tv_sec + (diff_t.tv_nsec / 1.0e9);
-    printf("FPS: %.2f, Calculated over %d frames, Total time: %.2fs\n",
-        (i+1) / diff_secs, i+1, diff_secs);*/
 
-    type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    xioctl(fd, VIDIOC_STREAMOFF, &type);
-    for (i = 0; i < n_buffers; ++i)
-            v4l2_munmap(buffers[i].start, buffers[i].length);
-    v4l2_close(fd);
+
+    deinit_video(p_vid_state);
 
     vgDestroyImage(vg_img);
     egl_deinit(&state);
