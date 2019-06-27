@@ -61,7 +61,7 @@ void diff(struct timespec *start, struct timespec *stop,
 }
 
 //const int CAM_RES_X = 640, CAM_RES_Y = 480, CAM_FPS = 30;   // 100% / 100% when encoding
-const int CAM_RES_X = 1280, CAM_RES_Y = 720, CAM_FPS = 30;  // 100% / 50% when encoding
+const int CAM_RES_X = 1280, CAM_RES_Y = 720, CAM_FPS = 30;  // 100% / 17-19 when encoding
 //const int CAM_RES_X = 1280, CAM_RES_Y = 960, CAM_FPS = 25; // 100%
 //const int CAM_RES_X = 1920, CAM_RES_Y = 1080, CAM_FPS = 15; // 100%
 // NOTE VG_IMAGE has a maximum size of 2048x2048 (4194304) pixels

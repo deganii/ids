@@ -11,14 +11,21 @@ typedef struct {
     int tracking_id;
     int position_x;
     int position_y;
+    int isDown;
 } touch_slot;
+
+enum touch_event_type {
+    TOUCH_DOWN, TOUCH_UP, TOUCH_DRAG
+};
 
 
 typedef struct
 {
     struct mtdev dev;
 	int fd;
-	int last_slot;
+	int last_touch_slot;
+    enum touch_event_type last_touch_event;
+	int num_active_touches;
 	touch_slot slots[MAX_SLOTS];
 } TouchState;
 

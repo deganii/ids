@@ -4,14 +4,17 @@ SRC       = $(wildcard native/*.c) main.c
 HEADERS   = $(wildcard native/*.h)
 #OBJ      = $(SRC:.c=.o)
 OBJECTS   = $(patsubst %.c, %.o, $(wildcard native/*.c)) $(patsubst %.c, %.o, $(wildcard *.c))
-LIBS      = -lmtdev -ljpeg -lbrcmGLESv2 -lSDL2 -lGLESv2 -lv4l2 -lEGL -lGLESv2 -lbcm_host -lopenmaxil -lilclient -lvcos -lvchiq_arm -lpthread -lrt -lm
-INC_PATH  = -I./native/ -I/usr/local/include/SDL2 -I/opt/vc/include/ -I/opt/vc/include/interface/vmcs_host/linux/ -I/opt/vc/include/interface/vcos/pthreads/ -I/opt/vc/src/hello_pi/libs/ilclient/
+LIBS      =  -lmtdev -ljpeg -lbrcmGLESv2 -lSDL2 -lGLESv2 -lv4l2 -lEGL -lGLESv2 -lbcm_host -lopenmaxil -lilclient -lvcos -lvchiq_arm -lpthread -lrt -lm
+INC_PATH  =  -I./native/ -I/usr/local/include/SDL2 -I/opt/vc/include/ -I/opt/vc/include/interface/vmcs_host/linux/ -I/opt/vc/include/interface/vcos/pthreads/ -I/opt/vc/src/hello_pi/libs/ilclient/
 LIB_PATH  = -L/opt/vc/lib/ -L/opt/vc/src/hello_pi/libs/ilclient/
+TESTS     = displaytest
+ALL_TESTS = $(TESTS)
 
 .PHONY: default all clean
 
 default: $(TARGET)
-all: default
+all: default $(TESTS)
+tests: $(TESTS)
 
 %.o: %.c $(HEADERS)
 	$(CC) $(CFLAGS) $(INC_PATH) -c $< -o $@
@@ -24,6 +27,12 @@ rpi: prepare
 
 prepare:
 	rm -f main.out $(OBJS)
+
+$(TESTS): %: tests/%.c
+	$(CC) $< $(CFLAGS) $(INC_PATH) -o $@ $(LIB_PATH) $(LIBS)
+
+
+
 
 
 clean:

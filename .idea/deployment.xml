@@ -1,11 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="RaspberryPI">
+  <component name="PublishConfigData" autoUpload="Always" serverName="RemoteRaspberry (baf78b3b-cd35-4dce-bcb8-2022fe2dd258)">
     <serverData>
-      <paths name="RaspberryPI">
+      <paths name="RaspberryPi">
         <serverdata>
           <mappings>
-            <mapping deploy="/home/pi/ids" local="$PROJECT_DIR$" />
+            <mapping deploy="/home/pi/ids" local="$PROJECT_DIR$" web="" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="RemoteRaspberry (baf78b3b-cd35-4dce-bcb8-2022fe2dd258)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/pi/ids" local="$PROJECT_DIR$" web="" />
           </mappings>
         </serverdata>
       </paths>
