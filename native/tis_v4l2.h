@@ -1,14 +1,32 @@
 #include <linux/videodev2.h>
 #include <sys/mman.h>
 #include <libv4l2.h>
+#include <sys/time.h>
+#include <time.h>
 
-#ifndef TIS_V4L2_H
-#define TIS_V4L2_H
+#ifndef IDS_TIS_V4L2_H
+#define IDS_TIS_V4L2_H
 
 struct buffer {
-  void *start;
-  size_t length;
+    void *start;
+    size_t length;
 };
+
+typedef struct video_state {
+    int fd;
+    struct buffer *buffers;
+
+    struct v4l2_buffer buf;
+    int fmt_width;
+    int fmt_height;
+    int fourcc;
+    int binning;
+    int fps;
+    int n_buffers;
+} video_state;
+
+
+
 
 /* Imaging Source UVC Camera Parameters
    from TIS uvc-exctensions/usb3.xml    */
@@ -32,7 +50,9 @@ struct buffer {
 
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 
-void xioctl(int fh, int request, void *arg);
-
-
+int init_video(char *device, int res_x, int res_y, unsigned int fourcc, int fps, int binning, video_state *state);
+int xioctl(int fh, int request, void *arg);
+struct buffer *get_frame(video_state *state);
+int deinit_video(video_state *state);
+void queue_buffer(video_state *state);
 #endif

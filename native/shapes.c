@@ -18,6 +18,7 @@
 #include "display.h"
 
 extern EGL_STATE_T *p_state;
+
 //static EGL_STATE_T _state, *p_state = &_state;	// global graphics state
 static const int MAXFONTPATH = 500;
 //

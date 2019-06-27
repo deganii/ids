@@ -3,8 +3,8 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <fcntl.h>
-#ifndef TOUCH_H
-#define TOUCH_H
+#ifndef IDS_TOUCH_H
+#define IDS_TOUCH_H
 #define MAX_SLOTS 5
 
 typedef struct {
@@ -17,7 +17,6 @@ typedef struct {
 enum touch_event_type {
     TOUCH_DOWN, TOUCH_UP, TOUCH_DRAG
 };
-
 
 typedef struct
 {

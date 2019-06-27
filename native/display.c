@@ -3,6 +3,7 @@
 #include "display.h"
 #include "bcm_host.h"
 
+
 void init_egl(EGL_STATE_T *state)
 {
     EGLint num_configs;

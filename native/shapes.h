@@ -12,8 +12,8 @@
 #include "fontinfo.h"
 
 
-#ifndef SHAPES_H
-#define SHAPES_H
+#ifndef IDS_SHAPES_H
+#define IDS_SHAPES_H
 
 #if defined(__cplusplus)
 extern "C" {

@@ -4,8 +4,8 @@
 #include <VG/openvg.h>
 #include <VG/vgu.h>
 
-#ifndef DISPLAY_H
-#define DISPLAY_H
+#ifndef IDS_DISPLAY_H
+#define IDS_DISPLAY_H
 
 typedef struct
 {
