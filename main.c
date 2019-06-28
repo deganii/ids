@@ -73,8 +73,6 @@ const int CAM_RES_X = 1280, CAM_RES_Y = 720, CAM_FPS = 30, CAM_BINNING=2;  // 10
 
 int main(int argc, char **argv)
 {
-    struct v4l2_format              fmt;
-    struct v4l2_buffer              buf;
     int                             r;
     unsigned int                    i;
     char                            *dev_name = "/dev/video0";
@@ -99,8 +97,7 @@ int main(int argc, char **argv)
     init_touch(input_name, p_touch_state);
 
     init_video(dev_name,CAM_RES_X,CAM_RES_Y,V4L2_PIX_FMT_GREY,CAM_FPS,CAM_BINNING,p_vid_state);
-    fmt.fmt.pix.width = vid_state.fmt_width;
-    fmt.fmt.pix.height = vid_state.fmt_height;
+
 
     init_egl(p_state);
     init_dispmanx(&nativewindow);
@@ -117,10 +114,10 @@ int main(int argc, char **argv)
         exit(2);
     }
 
-    int w_offset = ((int)nativewindow.width - (int)fmt.fmt.pix.width) / 2;
-    int h_offset = ((int)nativewindow.height - (int)fmt.fmt.pix.height) / 2;
+    int w_offset = ((int)nativewindow.width - (int)vid_state.fmt_width) / 2;
+    int h_offset = ((int)nativewindow.height - (int)vid_state.fmt_height) / 2;
     printf("Native Window Size: (%d,%d)\n", nativewindow.width, nativewindow.height);
-    printf("Camera Format Size: (%d,%d)\n", fmt.fmt.pix.width, fmt.fmt.pix.height);
+    printf("Camera Format Size: (%d,%d)\n", vid_state.fmt_width, vid_state.fmt_height);
     printf("VG_IMAGE Offsets: (%d,%d)\n", w_offset, h_offset);
 
 
@@ -268,12 +265,12 @@ int main(int argc, char **argv)
     struct buffer*frame;
     for (i = 0; !KILLED; i++) {
 
-            frame = get_frame(&vid_state);
-            buf = vid_state.buf;
+            frame = get_frame(p_vid_state);
+            //buf = vid_state.buf;
 
-            vgImageSubData(vg_img, frame->start, fmt.fmt.pix.width,
-                VG_sL_8, 0, 0, fmt.fmt.pix.width, fmt.fmt.pix.height);
-            vgSetPixels(w_offset, h_offset, vg_img, 0, 0, fmt.fmt.pix.width, fmt.fmt.pix.height);
+            vgImageSubData(vg_img, frame->start, vid_state.fmt_width,
+                VG_sL_8, 0, 0, vid_state.fmt_width, vid_state.fmt_height);
+            vgSetPixels(w_offset, h_offset, vg_img, 0, 0, vid_state.fmt_width, vid_state.fmt_height);
 
             build_ROI_selector(100,100,200,200, 1140, 650);
 
@@ -287,7 +284,7 @@ int main(int argc, char **argv)
              // in the future, try to avoid this RGB conversion and pass the L8 buffer directly
              char *buf_s = frame->start; //buffers[buf.index].start;
              int c2l = 0;
-             for(int l2c = 0; l2c < buf.bytesused; l2c++){
+             for(int l2c = 0; l2c < frame->length; l2c++){
                 omx_buf->pBuffer[c2l++] = buf_s[l2c];
                 omx_buf->pBuffer[c2l++] = buf_s[l2c];
                 omx_buf->pBuffer[c2l++] = buf_s[l2c];
