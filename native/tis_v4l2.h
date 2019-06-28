@@ -12,7 +12,7 @@ struct buffer {
     size_t length;
 };
 
-typedef struct video_state {
+typedef struct camera_state {
     int fd;
     struct buffer *buffers;
 
@@ -23,7 +23,7 @@ typedef struct video_state {
     int binning;
     int fps;
     int n_buffers;
-} video_state;
+} camera_state;
 
 
 
@@ -50,9 +50,9 @@ typedef struct video_state {
 
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 
-int init_video(char *device, int res_x, int res_y, unsigned int fourcc, int fps, int binning, video_state *state);
+int init_camera(char *device, int res_x, int res_y, unsigned int fourcc, int fps, int binning, camera_state *state);
 int xioctl(int fh, int request, void *arg);
-struct buffer *get_frame(video_state *state);
-int deinit_video(video_state *state);
-void queue_buffer(video_state *state);
+struct buffer *get_frame(camera_state *state);
+int deinit_camera(camera_state *state);
+void queue_buffer(camera_state *state);
 #endif

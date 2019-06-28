@@ -6,7 +6,7 @@
 #include <string.h>
 #include "display.c"
 
-EGL_STATE_T state, *p_state = &state;
+egl_state disp_egl_state, *p_state = &disp_egl_state;
 static volatile sig_atomic_t KILLED = 0;
 
 static void sig_handler(int _)
@@ -23,8 +23,8 @@ int main(int argc, char **argv)
     init_egl(p_state);
     init_dispmanx(&nativewindow);
     egl_from_dispmanx(p_state, &nativewindow);
-    if (eglMakeCurrent(state.display, state.surface,
-                       state.surface, state.context) == EGL_FALSE) {
+    if (eglMakeCurrent(disp_egl_state.display, disp_egl_state.surface,
+                       disp_egl_state.surface, disp_egl_state.context) == EGL_FALSE) {
         perror("Failed to eglMakeCurrent");
         exit(EXIT_FAILURE);
     }
@@ -49,7 +49,7 @@ int main(int argc, char **argv)
     }
 
     vgDestroyImage(vg_img);
-    egl_deinit(&state);
+    egl_deinit(&disp_egl_state);
 
     return 0;
 }

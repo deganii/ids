@@ -21,7 +21,7 @@ typedef struct
 	uint32_t window_width;
 	uint32_t window_height;
 
-} EGL_STATE_T;
+} egl_state;
 
 struct egl_manager {
     EGLNativeDisplayType xdpy;
@@ -41,9 +41,18 @@ struct egl_manager {
     EGLint major, minor;
 };
 
-void init_egl(EGL_STATE_T *state);
-void egl_deinit(EGL_STATE_T *state);
+typedef struct display_state{
+    EGL_DISPMANX_WINDOW_T           nativewindow;
+    egl_state                       egl_state;
+} display_state;
+
+
+void init_display(display_state *state);
+void deinit_display(display_state *state);
+
+void init_egl(egl_state *state);
+void egl_deinit(egl_state *state);
 void init_dispmanx(EGL_DISPMANX_WINDOW_T *nativewindow);
-void egl_from_dispmanx(EGL_STATE_T *state, EGL_DISPMANX_WINDOW_T *nativewindow);
+void egl_from_dispmanx(egl_state *state, EGL_DISPMANX_WINDOW_T *nativewindow);
 
 #endif

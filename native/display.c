@@ -1,10 +1,28 @@
 #include <stdio.h>
+#include <stdlib.h>
+
 #include <assert.h>
 #include "display.h"
 #include "bcm_host.h"
 
 
-void init_egl(EGL_STATE_T *state)
+void init_display(display_state *state){
+
+    init_egl(&(state->egl_state));
+    init_dispmanx(&(state->nativewindow));
+    egl_from_dispmanx(&(state->egl_state), &(state->nativewindow));
+    if (eglMakeCurrent(state->egl_state.display, state->egl_state.surface,
+                       state->egl_state.surface, state->egl_state.context) == EGL_FALSE) {
+        perror("Failed to eglMakeCurrent");
+        exit(EXIT_FAILURE);
+    }
+}
+
+void deinit_display(display_state *state){
+    egl_deinit(&(state->egl_state));
+}
+
+void init_egl(egl_state *state)
 {
     EGLint num_configs;
     EGLBoolean result;
@@ -87,7 +105,7 @@ void init_dispmanx(EGL_DISPMANX_WINDOW_T *nativewindow) {
     printf("Got a Dispmanx window\n");
 }
 
-void egl_from_dispmanx(EGL_STATE_T *state,
+void egl_from_dispmanx(egl_state *state,
 		       EGL_DISPMANX_WINDOW_T *nativewindow) {
     EGLBoolean result;
 
@@ -108,7 +126,7 @@ void egl_from_dispmanx(EGL_STATE_T *state,
 	state->window_height = nativewindow->height;
 }
 
-void egl_deinit(EGL_STATE_T *state)
+void egl_deinit(egl_state *state)
 {
 	// free the egsImage vgDestroyPaint
 	eglMakeCurrent(state->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);

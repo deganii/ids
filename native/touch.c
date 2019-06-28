@@ -48,8 +48,8 @@ void print_event(const struct input_event *ev) {
     }
 }
 
-void print_state(TouchState *state) {
-    // print the current state
+void print_state(touch_state *state) {
+    // print the current disp_egl_state
     int active_slot_id = (int)(state->last_touch_slot);
 
     if(active_slot_id > -1){
@@ -84,7 +84,7 @@ static void show_props(const struct mtdev *dev)
 	CHECK(dev, ABS_MT_PRESSURE);
 }
 
-int deinit_touch(TouchState*state)
+int deinit_touch(touch_state*state)
 {
     mtdev_close(&(state->dev)); // close device
     ioctl(state->fd, EVIOCGRAB, 0); // ungrab device
@@ -92,7 +92,7 @@ int deinit_touch(TouchState*state)
 }
 
 
-static void report_drag(TouchState *state, touch_slot *active_slot){
+static void report_drag(touch_state *state, touch_slot *active_slot){
     fprintf(stderr, "TOUCH_DRAG TRACKING_ID: %03d  ", active_slot->tracking_id);
     if(state->num_active_touches>1){
         for(int i = 0; i < MAX_SLOTS; i++ ){
@@ -118,7 +118,7 @@ static void report_touch(touch_slot *active_slot, int isDown){
 }
 
 
-static int process_event(TouchState*state, const struct input_event *ev)
+static int process_event(touch_state*state, const struct input_event *ev)
 {
     int active_slot_id = (int)(state->last_touch_slot);
     touch_slot *active_slot = &(state->slots[active_slot_id]);
@@ -173,7 +173,7 @@ static int process_event(TouchState*state, const struct input_event *ev)
     return 1;
 }
 
-void loop_device(TouchState*state)
+void loop_device(touch_state*state)
 {
     struct input_event ev;
     /* extract all available processed events */
@@ -182,7 +182,7 @@ void loop_device(TouchState*state)
     }
 }
 
-int init_touch(char *device, TouchState*state)
+int init_touch(char *device, touch_state*state)
 {
 	int fd = open(device, O_RDONLY | O_NONBLOCK);
 	if (fd < 0) {

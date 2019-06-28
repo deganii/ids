@@ -18,7 +18,7 @@ static char* get_fourcc_str(char *fourcc_str, int fourcc)
     return fourcc_str;
 }
 
-int init_video(char *device, int res_x, int res_y, unsigned int fourcc, int fps, int binning, video_state *state) {
+int init_camera(char *device, int res_x, int res_y, unsigned int fourcc, int fps, int binning, camera_state *state) {
     struct v4l2_format              fmt;
     struct v4l2_requestbuffers      req;
     struct v4l2_control             ctrl;
@@ -109,7 +109,7 @@ int init_video(char *device, int res_x, int res_y, unsigned int fourcc, int fps,
     return 1;
 }
 
-struct buffer *get_frame(video_state *state){
+struct buffer *get_frame(camera_state *state){
     static int r;
     static fd_set fds;
     static struct timeval tv;
@@ -135,7 +135,7 @@ struct buffer *get_frame(video_state *state){
     return &(state->buffers[state->buf.index]);
 }
 
-void queue_buffer(video_state *state){
+void queue_buffer(camera_state *state){
     xioctl(state->fd, VIDIOC_QBUF, &(state->buf));
 }
 
@@ -183,7 +183,7 @@ void get_formats(int fh)
 }
 
 
-int deinit_video(video_state *state){
+int deinit_camera(camera_state *state){
     enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     xioctl(state->fd, VIDIOC_STREAMOFF, &type);
     for (int i = 0; i < state->n_buffers; ++i)

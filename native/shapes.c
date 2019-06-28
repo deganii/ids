@@ -17,9 +17,9 @@
 #include "shapes.h"
 #include "display.h"
 
-extern EGL_STATE_T *p_state;
+extern display_state disp_state;
 
-//static EGL_STATE_T _state, *p_state = &_state;	// global graphics state
+//static egl_state _state, *p_state = &_state;	// global graphics disp_egl_state
 static const int MAXFONTPATH = 500;
 //
 // Font functions
@@ -201,15 +201,15 @@ Fontinfo SansTypeface, SerifTypeface, MonoTypeface;
 	init_h = h;
 }*/
 
-// init sets the system to its initial state
+// init sets the system to its initial disp_egl_state
 void init(int *w, int *h) {
 	/*bcm_host_init();
-	memset(state, 0, sizeof(*state));
+	memset(disp_egl_state, 0, sizeof(*disp_egl_state));
 	p_state->window_x = init_x;
 	p_state->window_y = init_y;
 	p_state->window_width = init_w;
 	p_state->window_height = init_h;
-	oglinit(state);
+	oglinit(disp_egl_state);
 	SansTypeface = loadfont(DejaVuSans_glyphPoints,
 				DejaVuSans_glyphPointIndices,
 				DejaVuSans_glyphInstructions,
@@ -609,7 +609,7 @@ void Start(int width, int height) {
 // End checks for errors, and renders to the display
 void End() {
 	assert(vgGetError() == VG_NO_ERROR);
-	eglSwapBuffers(p_state->display, p_state->surface);
+	eglSwapBuffers(disp_state.egl_state.display, disp_state.egl_state.surface);
 	assert(eglGetError() == EGL_SUCCESS);
 }
 
@@ -618,15 +618,15 @@ void SaveEnd(const char *filename) {
 	FILE *fp;
 	assert(vgGetError() == VG_NO_ERROR);
 	if (strlen(filename) == 0) {
-		dumpscreen(p_state->screen_width, p_state->screen_height, stdout);
+		dumpscreen(disp_state.egl_state.screen_width, disp_state.egl_state.screen_height, stdout);
 	} else {
 		fp = fopen(filename, "wb");
 		if (fp != NULL) {
-			dumpscreen(p_state->screen_width, p_state->screen_height, fp);
+			dumpscreen(disp_state.egl_state.screen_width, disp_state.egl_state.screen_height, fp);
 			fclose(fp);
 		}
 	}
-	eglSwapBuffers(p_state->display, p_state->surface);
+	eglSwapBuffers(disp_state.egl_state.display, disp_state.egl_state.surface);
 	assert(eglGetError() == EGL_SUCCESS);
 }
 
@@ -635,7 +635,7 @@ void Background(unsigned int r, unsigned int g, unsigned int b) {
 	VGfloat colour[4];
 	RGB(r, g, b, colour);
 	vgSetfv(VG_CLEAR_COLOR, 4, colour);
-	vgClear(0, 0, p_state->window_width, p_state->window_height);
+	vgClear(0, 0, disp_state.egl_state.window_width, disp_state.egl_state.window_height);
 }
 
 // BackgroundRGB clears the screen to a background color with alpha
@@ -643,12 +643,12 @@ void BackgroundRGB(unsigned int r, unsigned int g, unsigned int b, VGfloat a) {
 	VGfloat colour[4];
 	RGBA(r, g, b, a, colour);
 	vgSetfv(VG_CLEAR_COLOR, 4, colour);
-	vgClear(0, 0, p_state->window_width, p_state->window_height);
+	vgClear(0, 0, disp_state.egl_state.window_width, disp_state.egl_state.window_height);
 }
 
 // WindowClear clears the window to previously set background colour
 void WindowClear() {
-	vgClear(0, 0, p_state->window_width, p_state->window_height);
+	vgClear(0, 0, disp_state.egl_state.window_width, disp_state.egl_state.window_height);
 }
 
 // AreaClear clears a given rectangle in window coordinates (not affected by

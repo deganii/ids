@@ -26,10 +26,10 @@ typedef struct
     enum touch_event_type last_touch_event;
 	int num_active_touches;
 	touch_slot slots[MAX_SLOTS];
-} TouchState;
+} touch_state;
 
-int init_touch(char *device, TouchState *state);
-int deinit_touch(TouchState*state);
-void loop_device(TouchState*state);
+int init_touch(char *device, touch_state *state);
+int deinit_touch(touch_state*state);
+void loop_device(touch_state*state);
 
 #endif
