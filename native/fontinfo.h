@@ -1,7 +1,7 @@
-#ifndef OPENVG_FONTINFO_H
-#define OPENVG_FONTINFO_H
+#ifndef IDS_FONTINFO_H
+#define IDS_FONTINFO_H
 
-#if defined(__cplusplus)
+#ifdef __cplusplus
 extern "C" {
 #endif
 	typedef struct {
@@ -15,7 +15,8 @@ extern "C" {
 
 	extern Fontinfo SansTypeface, SerifTypeface, MonoTypeface;
 
-#if defined(__cplusplus)
+#ifdef __cplusplus
 }
-#endif				// OPENVG_FONTINFO_H
 #endif
+
+#endif // IDS_FONTINFO_H

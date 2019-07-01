@@ -7,6 +7,10 @@
 #ifndef IDS_OMX_ENCODER_H
 #define IDS_OMX_ENCODER_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct video_enc_state {
     COMPONENT_T            *video_encode;
     OMX_BUFFERHEADERTYPE   *omx_buf;
@@ -20,7 +24,9 @@ typedef struct video_enc_state {
 void print_def(OMX_PARAM_PORTDEFINITIONTYPE def);
 
 int init_video_encoder(char *video_file, int resx, int resy, video_enc_state *state);
-void save_frame(struct buffer *pBuffer, video_enc_state *pState);
+void save_frame(struct cam_buffer *pBuffer, video_enc_state *pState);
 void deinit_video(video_enc_state *pState);
-
+#ifdef __cplusplus
+}
+#endif
 #endif //IDS_OMX_ENCODER_H

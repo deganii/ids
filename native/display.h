@@ -7,6 +7,10 @@
 #ifndef IDS_DISPLAY_H
 #define IDS_DISPLAY_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct
 {
     EGLDisplay display;
@@ -55,4 +59,10 @@ void egl_deinit(egl_state *state);
 void init_dispmanx(EGL_DISPMANX_WINDOW_T *nativewindow);
 void egl_from_dispmanx(egl_state *state, EGL_DISPMANX_WINDOW_T *nativewindow);
 
+#ifdef __cplusplus
+}
 #endif
+
+
+#endif
+

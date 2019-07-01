@@ -16,19 +16,24 @@
 #include "touch.h"
 #include "ui.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+    touch_state tch_state;
+    camera_state cam_state;
+    video_enc_state vid_state;
+    display_state disp_state;
+    ui_state iu_state;
+#ifdef __cplusplus
+}
+#endif
 
-touch_state tch_state;
-camera_state cam_state;
-video_enc_state vid_state;
-display_state disp_state;
-ui_state iu_state;
 
 static volatile sig_atomic_t KILLED = 0;
 static void sig_handler(int _)
 {
     (void)_;
     KILLED = 1;
-
 }
 
 void diff(struct timespec *start, struct timespec *stop,
@@ -81,7 +86,7 @@ int main(int argc, char **argv)
     }
 
 
-    //printf("Camera Offsets: (%d,%d)\n", cam_state.cam_offset.x, cam_state.cam_offset.y);
+    printf("Camera Offsets: (%d,%d)\n", cam_state.cam_offset.x, cam_state.cam_offset.y);
 
     int w_offset = ((int)disp_state.nativewindow.width - (int)cam_state.fmt_width) / 2;
     int h_offset = ((int)disp_state.nativewindow.height - (int)cam_state.fmt_height) / 2;

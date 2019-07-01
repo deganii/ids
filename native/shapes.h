@@ -10,12 +10,13 @@
 #include <VG/openvg.h>
 #include <VG/vgu.h>
 #include "fontinfo.h"
+#include "display.h"
 
 
 #ifndef IDS_SHAPES_H
 #define IDS_SHAPES_H
 
-#if defined(__cplusplus)
+#ifdef __cplusplus
 extern "C" {
 #endif
 	extern void Translate(VGfloat, VGfloat);
@@ -38,10 +39,10 @@ extern "C" {
 	extern void Arc(VGfloat, VGfloat, VGfloat, VGfloat, VGfloat, VGfloat);
 	extern void Image(VGfloat, VGfloat, int, int, const char *);
 	extern void Start(int, int);
-	extern void End();
-	extern void SaveEnd(const char *);
-	extern void Background(unsigned int, unsigned int, unsigned int);
-	extern void BackgroundRGB(unsigned int, unsigned int, unsigned int, VGfloat);
+	extern void End(display_state *disp_state);
+	extern void SaveEnd(const char *, display_state *disp_state);
+	extern void Background(unsigned int, unsigned int, unsigned int, display_state *disp_state);
+	extern void BackgroundRGB(unsigned int, unsigned int, unsigned int, VGfloat, display_state *disp_state);
 	extern void init(int *, int *);
 	extern void finish();
 	extern void setfill(VGfloat[4]);
@@ -79,7 +80,7 @@ extern "C" {
 	extern void CircleOutline(VGfloat, VGfloat, VGfloat);
 	extern void ArcOutline(VGfloat, VGfloat, VGfloat, VGfloat, VGfloat, VGfloat);
 	extern VGImage createImageFromJpeg(const char *);
-#if defined(__cplusplus)
+#ifdef __cplusplus
 }
 #endif
 // Color name defines for use in functions using RGB triples

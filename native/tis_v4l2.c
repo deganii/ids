@@ -69,7 +69,7 @@ int init_camera(char *device, int res_x, int res_y, unsigned int fourcc, int fps
     req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     req.memory = V4L2_MEMORY_MMAP;
     xioctl(fd, VIDIOC_REQBUFS, &req);
-    state->buffers = calloc(req.count, sizeof(struct buffer));
+    state->buffers = calloc(req.count, sizeof(struct cam_buffer));
 
     for (n_buffers = 0; n_buffers < req.count; ++n_buffers) {
         CLEAR(state->buf);
@@ -106,10 +106,13 @@ int init_camera(char *device, int res_x, int res_y, unsigned int fourcc, int fps
     state->fmt_height = fmt.fmt.pix.height;
     state->fps = setfps.parm.capture.timeperframe.denominator;
     state->n_buffers = n_buffers;
+
+    get_roi_offset(state, &(state->cam_offset));
+
     return 1;
 }
 
-struct buffer *get_frame(camera_state *state){
+struct cam_buffer *get_frame(camera_state *state){
     static int r;
     static fd_set fds;
     static struct timeval tv;
@@ -149,7 +152,7 @@ int xioctl(int fh, int request, void *arg)
     } while (r == -1 && ((errno == EINTR) || (errno == EAGAIN)));
 
     if (r == -1) {
-            fprintf(stderr, "Error %d, %s\n", errno, strerror(errno));
+            fprintf(stderr, "Error %d in TIS xioctl(), %s\n", errno, strerror(errno));
             //exit(EXIT_FAILURE);
             return -1;
     }
@@ -182,12 +185,66 @@ void get_formats(int fh)
     return;
 }
 
-
 int deinit_camera(camera_state *state){
     enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     xioctl(state->fd, VIDIOC_STREAMOFF, &type);
     for (int i = 0; i < state->n_buffers; ++i)
         v4l2_munmap(state->buffers[i].start, state->buffers[i].length);
     return v4l2_close(state->fd);
+}
+
+void set_roi_offset(camera_state *state, coordinate *coord)
+{
+    struct v4l2_control ctrl_x, ctrl_y;
+    CLEAR(ctrl_x);
+    ctrl_x.id    = TIS_V4L2_ROI_OFFSET_X;
+    ctrl_x.value = coord->x;
+    if(xioctl(state->fd, VIDIOC_S_CTRL, &ctrl_x)>-1){
+        coord->x = ctrl_x.value;
+    }
+
+    CLEAR(ctrl_y);
+    ctrl_y.id    = TIS_V4L2_ROI_OFFSET_Y;
+    ctrl_y.value = coord->y;
+    if(xioctl(state->fd, VIDIOC_S_CTRL, &ctrl_y)>-1){
+        coord->y = ctrl_y.value;
+    }
+}
+
+void get_roi_offset(camera_state *state, coordinate *coord)
+{
+    struct v4l2_control ctrl_x, ctrl_y;
+
+    CLEAR(ctrl_x);
+    ctrl_x.id    = TIS_V4L2_ROI_OFFSET_X;
+    xioctl(state->fd, VIDIOC_G_CTRL, &ctrl_x);
+    coord->x = ctrl_x.value;
+
+    CLEAR(ctrl_y);
+    ctrl_y.id    = TIS_V4L2_ROI_OFFSET_Y;
+    xioctl(state->fd, VIDIOC_G_CTRL, &ctrl_y);
+    coord->y = ctrl_y.value;
+}
+
+void set_roi_auto(camera_state *state, int roi_auto)
+{
+    struct v4l2_control ctrl;
+    CLEAR(ctrl);
+    ctrl.id    = TIS_V4L2_ROI_AUTO_CENTER;
+    ctrl.value = roi_auto;
+    if(xioctl(state->fd, VIDIOC_S_CTRL, &ctrl)>-1){
+        ctrl.value = roi_auto ;
+    }
+
+
+}
+
+int get_roi_auto(camera_state *state)
+{
+    struct v4l2_control ctrl;
+    CLEAR(ctrl);
+    ctrl.id    = TIS_V4L2_ROI_AUTO_CENTER;
+    xioctl(state->fd, VIDIOC_G_CTRL, &ctrl);
+    return ctrl.value;
 }
 

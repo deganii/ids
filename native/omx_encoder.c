@@ -168,7 +168,7 @@ int init_video_encoder(char *video_file, int resx, int resy, video_enc_state *st
 }
 
 
-void save_frame(struct buffer *frame, video_enc_state *state) {
+void save_frame(struct cam_buffer *frame, video_enc_state *state) {
     OMX_BUFFERHEADERTYPE   *out;
     OMX_ERRORTYPE          omx_r;
 
@@ -178,7 +178,7 @@ void save_frame(struct buffer *frame, video_enc_state *state) {
         printf("No buffers available\n");
     } else {
 
-        // in the future, try to avoid this RGB conversion and pass the L8 buffer directly
+        // in the future, try to avoid this RGB conversion and pass the L8 cam_buffer directly
         char *buf_s = frame->start; //buffers[buf.index].start;
         int c2l = 0;
         for(int l2c = 0; l2c < frame->length; l2c++){
@@ -190,7 +190,7 @@ void save_frame(struct buffer *frame, video_enc_state *state) {
 
         if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(state->video_encode), state->omx_buf) !=
             OMX_ErrorNone) {
-            printf("Error emptying buffer!\n");
+            printf("Error emptying cam_buffer!\n");
         }
 
         out = ilclient_get_output_buffer(state->video_encode, 201, 1);
@@ -205,7 +205,7 @@ void save_frame(struct buffer *frame, video_enc_state *state) {
 
             omx_r = fwrite(out->pBuffer, 1, out->nFilledLen, state->outf);
             if (omx_r != out->nFilledLen) {
-                printf("fwrite: Error emptying buffer: %d!\n", omx_r);
+                printf("fwrite: Error emptying cam_buffer: %d!\n", omx_r);
             } else {
                 // printf("Writing frame %d/%d, len %u\n", i, TOTAL_FRAMES, out->nFilledLen);
             }
@@ -216,7 +216,7 @@ void save_frame(struct buffer *frame, video_enc_state *state) {
 
         omx_r = OMX_FillThisBuffer(ILC_GET_HANDLE(state->video_encode), out);
         if (omx_r != OMX_ErrorNone) {
-            printf("Error sending buffer for filling: %x\n", omx_r);
+            printf("Error sending cam_buffer for filling: %x\n", omx_r);
         }
     }
 

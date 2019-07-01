@@ -17,7 +17,7 @@
 #include "shapes.h"
 #include "display.h"
 
-extern display_state disp_state;
+//extern display_state disp_state;
 
 //static egl_state _state, *p_state = &_state;	// global graphics disp_egl_state
 static const int MAXFONTPATH = 500;
@@ -115,13 +115,13 @@ VGImage createImageFromJpeg(const char *filename) {
 	width = jdc.output_width;
 	height = jdc.output_height;
 
-	// Allocate buffer using jpeg allocator
+	// Allocate cam_buffer using jpeg allocator
 	bbpp = jdc.output_components;
 	bstride = width * bbpp;
 	buffer = (*jdc.mem->alloc_sarray)
 	    ((j_common_ptr) & jdc, JPOOL_IMAGE, bstride, 1);
 
-	// Allocate image data buffer
+	// Allocate image data cam_buffer
 	dbpp = 4;
 	dstride = width * dbpp;
 	data = (VGubyte *) malloc(dstride * height);
@@ -129,7 +129,7 @@ VGImage createImageFromJpeg(const char *filename) {
 	// Iterate until all scanlines processed
 	while (jdc.output_scanline < height) {
 
-		// Read scanline into buffer
+		// Read scanline into cam_buffer
 		jpeg_read_scanlines(&jdc, buffer, 1);
 		drow = data + (height - jdc.output_scanline) * dstride;
 		brow = buffer[0];
@@ -607,48 +607,48 @@ void Start(int width, int height) {
 }
 
 // End checks for errors, and renders to the display
-void End() {
+void End(display_state *disp_state) {
 	assert(vgGetError() == VG_NO_ERROR);
-	eglSwapBuffers(disp_state.egl_state.display, disp_state.egl_state.surface);
+	eglSwapBuffers(disp_state->egl_state.display, disp_state->egl_state.surface);
 	assert(eglGetError() == EGL_SUCCESS);
 }
 
 // SaveEnd dumps the raster before rendering to the display
-void SaveEnd(const char *filename) {
+void SaveEnd(const char *filename, display_state *disp_state) {
 	FILE *fp;
 	assert(vgGetError() == VG_NO_ERROR);
 	if (strlen(filename) == 0) {
-		dumpscreen(disp_state.egl_state.screen_width, disp_state.egl_state.screen_height, stdout);
+		dumpscreen(disp_state->egl_state.screen_width, disp_state->egl_state.screen_height, stdout);
 	} else {
 		fp = fopen(filename, "wb");
 		if (fp != NULL) {
-			dumpscreen(disp_state.egl_state.screen_width, disp_state.egl_state.screen_height, fp);
+			dumpscreen(disp_state->egl_state.screen_width, disp_state->egl_state.screen_height, fp);
 			fclose(fp);
 		}
 	}
-	eglSwapBuffers(disp_state.egl_state.display, disp_state.egl_state.surface);
+	eglSwapBuffers(disp_state->egl_state.display, disp_state->egl_state.surface);
 	assert(eglGetError() == EGL_SUCCESS);
 }
 
 // Backgroud clears the screen to a solid background color
-void Background(unsigned int r, unsigned int g, unsigned int b) {
+void Background(unsigned int r, unsigned int g, unsigned int b, display_state *disp_state) {
 	VGfloat colour[4];
 	RGB(r, g, b, colour);
 	vgSetfv(VG_CLEAR_COLOR, 4, colour);
-	vgClear(0, 0, disp_state.egl_state.window_width, disp_state.egl_state.window_height);
+	vgClear(0, 0, disp_state->egl_state.window_width, disp_state->egl_state.window_height);
 }
 
 // BackgroundRGB clears the screen to a background color with alpha
-void BackgroundRGB(unsigned int r, unsigned int g, unsigned int b, VGfloat a) {
+void BackgroundRGB(unsigned int r, unsigned int g, unsigned int b, VGfloat a, display_state *disp_state) {
 	VGfloat colour[4];
 	RGBA(r, g, b, a, colour);
 	vgSetfv(VG_CLEAR_COLOR, 4, colour);
-	vgClear(0, 0, disp_state.egl_state.window_width, disp_state.egl_state.window_height);
+	vgClear(0, 0, disp_state->egl_state.window_width, disp_state->egl_state.window_height);
 }
 
 // WindowClear clears the window to previously set background colour
-void WindowClear() {
-	vgClear(0, 0, disp_state.egl_state.window_width, disp_state.egl_state.window_height);
+void WindowClear(display_state *disp_state) {
+	vgClear(0, 0, disp_state->egl_state.window_width, disp_state->egl_state.window_height);
 }
 
 // AreaClear clears a given rectangle in window coordinates (not affected by

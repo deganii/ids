@@ -44,7 +44,7 @@ void init_egl(egl_state *state)
     // initialize the EGL display connection
     result = eglInitialize(state->display, NULL, NULL);
 
-    // get an appropriate EGL frame buffer configuration
+    // get an appropriate EGL frame cam_buffer configuration
     result = eglChooseConfig(state->display, attribute_list, &state->config, 1, &num_configs);
     assert(EGL_FALSE != result);
 
