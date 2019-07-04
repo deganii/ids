@@ -19,12 +19,14 @@ typedef struct video_enc_state {
     int                    rgb_len;
     OMX_BUFFERHEADERTYPE   *out;
     COMPONENT_T            *list[5];
+
 } video_enc_state;
 
 void print_def(OMX_PARAM_PORTDEFINITIONTYPE def);
 
 int init_video_encoder(char *video_file, int resx, int resy, video_enc_state *state);
-void save_frame(struct cam_buffer *pBuffer, video_enc_state *pState);
+OMX_U8 *get_encoder_buffer(video_enc_state *pState);
+void save_frame(video_enc_state *pState);
 void deinit_video(video_enc_state *pState);
 #ifdef __cplusplus
 }

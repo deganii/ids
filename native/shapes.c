@@ -596,14 +596,15 @@ void Arc(VGfloat x, VGfloat y, VGfloat w, VGfloat h, VGfloat sa, VGfloat aext) {
 
 // Start begins the picture, clearing a rectangular region with a specified color
 void Start(int width, int height) {
-	VGfloat color[4] = { 1, 1, 1, 1 };
-	//vgSetfv(VG_CLEAR_COLOR, 4, color);
-	//vgClear(0, 0, width, height);
+//	VGfloat color[4] = { 1, 1, 1, 1 };
+    VGfloat color[4] = { 0, 0, 0, 0};
+	vgSetfv(VG_CLEAR_COLOR, 4, color);
+	vgClear(0, 0, width, height);
 	color[0] = 0, color[1] = 0, color[2] = 0;
 	setfill(color);
 	setstroke(color);
 	StrokeWidth(0);
-	vgLoadIdentity();
+	//vgLoadIdentity();
 }
 
 // End checks for errors, and renders to the display

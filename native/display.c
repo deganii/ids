@@ -7,7 +7,6 @@
 
 
 void init_display(display_state *state){
-
     init_egl(&(state->egl_state));
     init_dispmanx(&(state->nativewindow));
     egl_from_dispmanx(&(state->egl_state), &(state->nativewindow));
@@ -79,7 +78,7 @@ void init_dispmanx(EGL_DISPMANX_WINDOW_T *nativewindow) {
 
     dst_rect.x = 0;
     dst_rect.y = 0;
-    dst_rect.width = screen_width;
+    dst_rect.width = screen_width -200;
     dst_rect.height = screen_height;
 
     src_rect.x = 0;
@@ -90,15 +89,14 @@ void init_dispmanx(EGL_DISPMANX_WINDOW_T *nativewindow) {
     dispman_display = vc_dispmanx_display_open( 0 /* LCD */);
     dispman_update = vc_dispmanx_update_start( 0 );
 
-    dispman_element =
-	vc_dispmanx_element_add(dispman_update, dispman_display,
+    dispman_element = vc_dispmanx_element_add(dispman_update, dispman_display,
 				0/*layer*/, &dst_rect, 0/*src*/,
 				&src_rect, DISPMANX_PROTECTION_NONE,
 				0 /*alpha*/, 0/*clamp*/, 0/*transform*/);
 
     // Build an EGL_DISPMANX_WINDOW_T from the Dispmanx window
     nativewindow->element = dispman_element;
-    nativewindow->width = screen_width;
+    nativewindow->width = screen_width-200;
     nativewindow->height = screen_height;
     vc_dispmanx_update_submit_sync(dispman_update);
 

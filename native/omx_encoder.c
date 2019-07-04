@@ -107,12 +107,15 @@ int init_video_encoder(char *video_file, int resx, int resy, video_enc_state *st
     }
 
     OMX_VIDEO_PARAM_BITRATETYPE bitrateType;
-    // set current bitrate to 1Mbit
+
     memset(&bitrateType, 0, sizeof(OMX_VIDEO_PARAM_BITRATETYPE));
     bitrateType.nSize = sizeof(OMX_VIDEO_PARAM_BITRATETYPE);
     bitrateType.nVersion.nVersion = OMX_VERSION;
     bitrateType.eControlRate = OMX_Video_ControlRateVariable;
-    bitrateType.nTargetBitrate = 1000000;
+
+    // set current bitrate to 10 Mbits
+    // For reference, a class 10 SD card should be able to do 10MB/sec (or 80Mbit)
+    bitrateType.nTargetBitrate = 10*1000000;
     bitrateType.nPortIndex = 201;
     omx_r = OMX_SetParameter(ILC_GET_HANDLE(state->video_encode),
                              OMX_IndexParamVideoBitrate, &bitrateType);
@@ -167,25 +170,26 @@ int init_video_encoder(char *video_file, int resx, int resy, video_enc_state *st
     return 0;
 }
 
+OMX_U8 *get_encoder_buffer(video_enc_state *pState){
+    pState->omx_buf = ilclient_get_input_buffer(pState->video_encode, 200, 1);
+    if (pState->omx_buf == NULL) {
+        printf("No buffers available\n");
+        return NULL;
+    }
+    return pState->omx_buf->pBuffer;
+}
 
-void save_frame(struct cam_buffer *frame, video_enc_state *state) {
+void save_frame(video_enc_state *state) {
     OMX_BUFFERHEADERTYPE   *out;
     OMX_ERRORTYPE          omx_r;
 
-    state->omx_buf = ilclient_get_input_buffer(state->video_encode, 200, 1);
+    //state->omx_buf = ilclient_get_input_buffer(state->video_encode, 200, 1);
 
     if (state->omx_buf == NULL) {
         printf("No buffers available\n");
     } else {
 
-        // in the future, try to avoid this RGB conversion and pass the L8 cam_buffer directly
-        char *buf_s = frame->start; //buffers[buf.index].start;
-        int c2l = 0;
-        for(int l2c = 0; l2c < frame->length; l2c++){
-            state->omx_buf->pBuffer[c2l++] = buf_s[l2c];
-            state->omx_buf->pBuffer[c2l++] = buf_s[l2c];
-            state->omx_buf->pBuffer[c2l++] = buf_s[l2c];
-        }
+        // assume our buffer is filled
         state->omx_buf->nFilledLen = state->rgb_len;
 
         if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(state->video_encode), state->omx_buf) !=
