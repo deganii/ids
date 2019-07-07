@@ -115,7 +115,7 @@ int init_video_encoder(char *video_file, int resx, int resy, video_enc_state *st
 
     // set current bitrate to 10 Mbits
     // For reference, a class 10 SD card should be able to do 10MB/sec (or 80Mbit)
-    bitrateType.nTargetBitrate = 10*1000000;
+    bitrateType.nTargetBitrate = 1*1000000;
     bitrateType.nPortIndex = 201;
     omx_r = OMX_SetParameter(ILC_GET_HANDLE(state->video_encode),
                              OMX_IndexParamVideoBitrate, &bitrateType);

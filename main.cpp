@@ -88,7 +88,7 @@ int main(int argc, char **argv)
 
     init_display(&disp_state);
 
-    init_touch(input_name, &tch_state,disp_state.nativewindow.height);
+    //init_touch(input_name, &tch_state,disp_state.nativewindow.height);
     init_video_encoder(video_file, CAM_RES_X, CAM_RES_Y, &vid_state);
     init_ui(&iu_state, &cam_state);
 
@@ -169,7 +169,7 @@ int main(int argc, char **argv)
             queue_buffer(&cam_state);
 
             // handle touch events
-            process_touch_events(&tch_state, handle_touch_event);
+            //process_touch_events(&tch_state, handle_touch_event);
             update_ui(&iu_state);
 
             eglSwapBuffers(disp_state.egl_state.display, disp_state.egl_state.surface);
@@ -196,7 +196,7 @@ int main(int argc, char **argv)
     vgDestroyImage(vg_img);
     deinit_display(&disp_state);
     deinit_video(&vid_state);
-    deinit_touch(&tch_state);
+    //deinit_touch(&tch_state);
 
 
     delete opencv_in_gray;

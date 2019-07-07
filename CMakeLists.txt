@@ -66,7 +66,6 @@ add_library(idslib native
 
 
 add_executable(ids main.cpp)
-add_executable(ids-c main.c)
 add_executable(displaytest tests/displaytest.c)
 add_executable(perftest tests/perftest.cpp)
 
@@ -93,11 +92,9 @@ target_link_libraries(idslib
 
 target_link_libraries(lib_gpufft rt m dl)
 target_link_libraries(ids idslib)
-target_link_libraries(ids-c idslib)
 target_link_libraries(displaytest idslib)
 target_link_libraries(perftest idslib)
 
-add_dependencies(ids-c idslib)
 add_dependencies(ids idslib)
 add_dependencies(displaytest idslib)
 add_dependencies(perftest idslib)
