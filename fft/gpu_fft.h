@@ -29,6 +29,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef __GPU_FFT__
 #define __GPU_FFT__
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define GPU_FFT_QPUS 8
 
 #define GPU_FFT_PI 3.14159265358979323846
@@ -97,5 +101,9 @@ void gpu_fft_base_release(
 unsigned gpu_fft_ptr_inc (
     struct GPU_FFT_PTR *ptr,
     int bytes);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // __GPU_FFT__

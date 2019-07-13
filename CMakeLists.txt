@@ -5,6 +5,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_VERBOSE_MAKEFILE on )
 
 include_directories(
+        /home/pi/fftw-3.3.8/api/
         ./native/
         ./fft/
         #/usr/local/include/SDL2/
@@ -14,6 +15,7 @@ include_directories(
         /opt/vc/include/interface/vmcs_host/linux/
         /opt/vc/include/interface/vcos/pthreads/
         /opt/vc/src/hello_pi/libs/ilclient/
+        /usr/include/
 )
 
 link_directories(
@@ -31,7 +33,7 @@ add_compile_options(
         -mcpu=cortex-a7 -mfpu=neon-vfpv4
 )
 
-add_library(lib_gpufft
+add_library(gpufft
         fft/mailbox.c
         fft/gpu_fft.c
         fft/gpu_fft_base.c
@@ -64,7 +66,6 @@ add_library(idslib native
         native/imgproc.h)
 
 
-
 add_executable(ids main.cpp)
 add_executable(displaytest tests/displaytest.c)
 add_executable(perftest tests/perftest.cpp)
@@ -88,16 +89,19 @@ target_link_libraries(idslib
         opencv_core
         opencv_imgproc
         /home/pi/Ne10/build/modules/libNE10.a
-)
+        #fftw3 fftw3f fftw3_threads fftw3f_threads
+        /home/pi/fftw-3.3.8/.libs/libfftw3f.a
+        /home/pi/fftw-3.3.8/threads/.libs/libfftw3f_threads.a
+        )
 
-target_link_libraries(lib_gpufft rt m dl)
+target_link_libraries(gpufft rt m dl)
 target_link_libraries(ids idslib)
 target_link_libraries(displaytest idslib)
-target_link_libraries(perftest idslib)
+target_link_libraries(perftest idslib gpufft)
 
 add_dependencies(ids idslib)
 add_dependencies(displaytest idslib)
-add_dependencies(perftest idslib)
+add_dependencies(perftest idslib gpufft)
 
 
 

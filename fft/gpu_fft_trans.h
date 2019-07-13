@@ -28,6 +28,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "gpu_fft.h"
 
+#ifndef __GPU_TRANS_FFT__
+#define __GPU_TRANS_FFT__
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct GPU_FFT_TRANS {
     struct GPU_FFT_BASE base;
 };
@@ -43,3 +51,9 @@ unsigned gpu_fft_trans_execute( // src->out ==> T ==> dst->in
 
 void gpu_fft_trans_release(
     struct GPU_FFT_TRANS *info);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // __GPU_TRANS_FFT__

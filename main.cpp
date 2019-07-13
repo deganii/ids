@@ -38,7 +38,7 @@ extern "C" {
 #ifdef __cplusplus
 }
 #endif
-#define FPS_INTERVAL 25
+#define FPS_INTERVAL 100
 
 static volatile sig_atomic_t KILLED = 0;
 static void sig_handler(int _)
@@ -69,6 +69,25 @@ const int CAM_RES_X = 1280, CAM_RES_Y = 720, CAM_FPS = 30, CAM_BINNING=2;  // 10
 using namespace cv;
 //using namespace cv::AdaptiveThresholdTypes;
 
+template <typename F, typename ... Ts>
+
+double timer(F f, Ts&&...args) {
+    clock_t t_begin = std::clock();
+    f(std::forward<Ts>(args)...);
+    clock_t t_end = std::clock();
+    return double(t_end - t_begin) / CLOCKS_PER_SEC;
+}
+
+
+template <typename F>
+double timer(F f) {
+    clock_t t_begin = std::clock();
+    f();
+    clock_t t_end = std::clock();
+    return double(t_end - t_begin) / CLOCKS_PER_SEC;
+}
+
+
 
 int main(int argc, char **argv)
 {
@@ -80,11 +99,12 @@ int main(int argc, char **argv)
     struct timespec                 start, finish, diff_t;
     coordinate offset;
 
+    double time_save_frame =0.0, time_get_encoder_buffer = 0.0;
+
     init_camera(cam_name, CAM_RES_X, CAM_RES_Y, V4L2_PIX_FMT_GREY, CAM_FPS, CAM_BINNING, &cam_state);
 
     get_roi_offset(&cam_state, &offset);
     fprintf(stderr, "Offsets: POSITION: (%03d,%03d)\n", offset.x, offset.y);
-
 
     init_display(&disp_state);
 
@@ -99,7 +119,6 @@ int main(int argc, char **argv)
         fprintf(stderr, "Error code %x\n", vgGetError());
         exit(2);
     }
-
 
     printf("Camera Offsets: (%d,%d)\n", cam_state.cam_offset.x, cam_state.cam_offset.y);
 
@@ -128,18 +147,18 @@ int main(int argc, char **argv)
             }
 
             opencv_in_gray->data = (unsigned char*)frame->start;
-            opencv_out_gray->data = opencv_in_gray->data;
+//            opencv_out_gray->data = opencv_in_gray->data;
 
             //computeThresholdNEON(frame->start,opencv_buffer,frame->length,127,255);
 
-            // in-place threshold
-            threshold(*opencv_in_gray, *opencv_in_gray, 127, 255,cv::ThresholdTypes::THRESH_BINARY );
+
+            threshold(*opencv_in_gray, *opencv_out_gray, 127, 255,cv::ThresholdTypes::THRESH_BINARY );
 
 
 //            adaptiveBilateralFilter(*opencv_in_gray, *opencv_out_gray, )
 
 
-       //      bilateralFilter(*opencv_in_gray, *opencv_out_gray, 9, 75, 75);
+//             bilateralFilter(*opencv_in_gray, *opencv_out_gray, 9, 75, 75);
 
 //            adaptiveThreshold(*opencv_in_gray, *opencv_out_gray, 255,
 //                              cv::AdaptiveThresholdTypes::ADAPTIVE_THRESH_GAUSSIAN_C,
@@ -158,13 +177,17 @@ int main(int argc, char **argv)
                 opencv_rgb = new cv::Mat(CAM_RES_X, CAM_RES_Y, CV_8UC3, get_encoder_buffer(&vid_state));
             }
             else {
-                opencv_rgb->data =  get_encoder_buffer(&vid_state);
+                time_get_encoder_buffer += timer([&]() {
+                    opencv_rgb->data = get_encoder_buffer(&vid_state);
+                });
             }
 
 
             // convert to RGB because OMAX doesn't support luminance videos
             cv::cvtColor(*opencv_out_gray, *opencv_rgb, cv::COLOR_GRAY2RGB);
-            save_frame(&vid_state);
+
+            time_save_frame += timer([&](){ save_frame(&vid_state);});
+//            save_frame(&vid_state);
 
             queue_buffer(&cam_state);
 
@@ -188,6 +211,16 @@ int main(int argc, char **argv)
                     printf("\e[0EFPS: %.2f, Calculated over %06d frames, Total time: %.2fs\n",
                            (i - FPS_INTERVAL) / diff_secs, i-FPS_INTERVAL, diff_secs);
                     fflush(stdout);
+
+                    printf("Time spent in get_encoder_buffer: %.2fms, Calculated over %06d frames, Total time: %.2fs\n",
+                           1000.0*time_get_encoder_buffer/(i+1), i+1, time_get_encoder_buffer);
+
+
+                    printf("Time spent in save_frame: %.2fms, Calculated over %06d frames, Total time: %.2fs\n",
+                          1000.0*time_save_frame/(i+1), i+1, time_save_frame);
+
+                    fflush(stdout);
+
                 }
             }
     }
