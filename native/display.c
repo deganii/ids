@@ -6,7 +6,7 @@
 #include "bcm_host.h"
 
 
-void init_display(display_state *state){
+void init_display(display_state *state, int cam_resx, int cam_resy, int create_khr){
     init_egl(&(state->egl_state));
     init_dispmanx(&(state->nativewindow));
     egl_from_dispmanx(&(state->egl_state), &(state->nativewindow));
@@ -15,9 +15,33 @@ void init_display(display_state *state){
         perror("Failed to eglMakeCurrent");
         exit(EXIT_FAILURE);
     }
+
+    state->vg_img = vgCreateImage(VG_sL_8, cam_resx,cam_resy, VG_IMAGE_QUALITY_NONANTIALIASED);
+    state->vg_img = vgCreateImage(VG_sABGR_8888/*VG_sL_8*/, cam_resx,cam_resy, VG_IMAGE_QUALITY_NONANTIALIASED);
+
+    if (state->vg_img == VG_INVALID_HANDLE) {
+        fprintf(stderr, "Can't create vg_img\n");
+        fprintf(stderr, "Error code %x\n", vgGetError());
+        exit(2);
+    }
+
+//    if(create_khr) {
+//        vgClearImage(state->vg_img, 0, 0, cam_resx, cam_resy);
+//        state->eglKHRImage = eglCreateImageKHR(
+//                state->egl_state.display,
+//                state->egl_state.context,
+//                EGL_VG_PARENT_IMAGE_KHR,
+//                (EGLClientBuffer) (state->vg_img),
+//                0);
+//        if (state->eglKHRImage == EGL_NO_IMAGE_KHR) {
+//            printf("eglCreateImageKHR failed.\n");
+//            exit(1);
+//        }
+//    }
 }
 
 void deinit_display(display_state *state){
+    vgDestroyImage(state->vg_img);
     egl_deinit(&(state->egl_state));
 }
 

@@ -3,6 +3,7 @@
 #include <libv4l2.h>
 #include <sys/time.h>
 #include <time.h>
+#include <pthread.h>
 #include "types.h"
 
 #ifndef IDS_TIS_V4L2_H
@@ -27,6 +28,9 @@ typedef struct camera_state {
     int fps;
     int n_buffers;
     coordinate cam_offset;
+    // pointer to the current buffer in [cam_buffer *buffers]
+    struct cam_buffer *current_buffer;
+    void *processed_frame;
 } camera_state;
 
 

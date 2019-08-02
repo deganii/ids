@@ -68,6 +68,8 @@ int init_video_encoder(char *video_file, int resx, int resy, video_enc_state *st
     }
 
     print_def(def);
+//    set_tunnel();
+//            ilclient_setup_tunnel()
 
     // Port 200: in 1/1 115200 16 enabled,not pop.,not cont. 320x240 320x240 @1966080 20
     def.format.video.nFrameWidth = resx;
@@ -197,6 +199,7 @@ void save_frame(video_enc_state *state) {
             printf("Error emptying cam_buffer!\n");
         }
 
+        // this blocks until the output buffer is ready...
         out = ilclient_get_output_buffer(state->video_encode, 201, 1);
 
         if (out != NULL) {

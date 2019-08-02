@@ -109,6 +109,8 @@ int init_camera(char *device, int res_x, int res_y, unsigned int fourcc, int fps
 
     get_roi_offset(state, &(state->cam_offset));
 
+    state->processed_frame = malloc(sizeof(state->buf.length));
+
     return 1;
 }
 
@@ -119,8 +121,7 @@ struct cam_buffer *get_frame(camera_state *state){
     do {
         FD_ZERO(&fds);
         FD_SET(state->fd, &fds);
-
-        // Timeout
+        // TimeoutFD_SETSIZE
         tv.tv_sec = 2;
         tv.tv_usec = 0;
 
@@ -135,7 +136,8 @@ struct cam_buffer *get_frame(camera_state *state){
     state->buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     state->buf.memory = V4L2_MEMORY_MMAP;
     xioctl(state->fd, VIDIOC_DQBUF, &(state->buf));
-    return &(state->buffers[state->buf.index]);
+    state->current_buffer = &(state->buffers[state->buf.index]);
+    return state->current_buffer;
 }
 
 void queue_buffer(camera_state *state){

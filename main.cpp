@@ -3,11 +3,15 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <sys/eventfd.h>
 #include <time.h>
 #include <string.h>
 #include <linux/videodev2.h>
+#include <pthread.h>
+#include <stdbool.h>
 
 // OPENCV Includes
 #include <opencv2/imgproc/imgproc.hpp>
@@ -18,6 +22,7 @@
 //#include <opencv/cv.hpp>
 
 #include <shapes.h>
+#include <egl_render.h>
 
 
 #include "omx_encoder.h"
@@ -26,29 +31,39 @@
 #include "touch.h"
 #include "ui.h"
 #include "imgproc.h"
+#include "app.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+    //app_state ids_state;
     touch_state tch_state;
     camera_state cam_state;
     video_enc_state vid_state;
     display_state disp_state;
     ui_state iu_state;
+    static volatile sig_atomic_t KILLED = 0;
+    static pthread_t video_thread;
+
+    static pthread_mutex_t  frame_consumed_lock;
+    static pthread_cond_t  frame_consumed;
 #ifdef __cplusplus
 }
 #endif
 #define FPS_INTERVAL 100
+#define FRAME_READY 0xF1
 
-static volatile sig_atomic_t KILLED = 0;
+#define handle_error(msg) do { perror(msg); exit(EXIT_FAILURE); } while (0)
+
 static void sig_handler(int _)
 {
     (void)_;
     KILLED = 1;
 }
 
-void diff(struct timespec *start, struct timespec *stop,
-                   struct timespec *result) {
+
+const void diff(struct timespec *start, struct timespec *stop,
+                       struct timespec *result) {
     if ((stop->tv_nsec - start->tv_nsec) < 0) {
         result->tv_sec = stop->tv_sec - start->tv_sec - 1;
         result->tv_nsec = stop->tv_nsec - start->tv_nsec + 1000000000;
@@ -67,8 +82,6 @@ const int CAM_RES_X = 1280, CAM_RES_Y = 720, CAM_FPS = 30, CAM_BINNING=2;  // 10
 //const int CAM_RES_X = 2560, CAM_RES_Y = 1920, CAM_FPS = 5; // FAIL
 
 using namespace cv;
-//using namespace cv::AdaptiveThresholdTypes;
-
 template <typename F, typename ... Ts>
 
 double timer(F f, Ts&&...args) {
@@ -87,72 +100,164 @@ double timer(F f) {
     return double(t_end - t_begin) / CLOCKS_PER_SEC;
 }
 
+/* add a fd to fd_set, and update max_fd */
+int safe_fd_set(int fd, fd_set* fds, int* max_fd) {
+    assert(max_fd != NULL);
 
-
-int main(int argc, char **argv)
-{
-    unsigned int                    i;
-    char                            *cam_name   = (char *)"/dev/video0";
-    char                            *input_name = (char *)"/dev/input/event0";
-    char                            *video_file = (char *)"capture.h264";
-    VGImage                         vg_img;
-    struct timespec                 start, finish, diff_t;
-    coordinate offset;
-
-    double time_save_frame =0.0, time_get_encoder_buffer = 0.0;
-
-    init_camera(cam_name, CAM_RES_X, CAM_RES_Y, V4L2_PIX_FMT_GREY, CAM_FPS, CAM_BINNING, &cam_state);
-
-    get_roi_offset(&cam_state, &offset);
-    fprintf(stderr, "Offsets: POSITION: (%03d,%03d)\n", offset.x, offset.y);
-
-    init_display(&disp_state);
-
-    //init_touch(input_name, &tch_state,disp_state.nativewindow.height);
-    init_video_encoder(video_file, CAM_RES_X, CAM_RES_Y, &vid_state);
-    init_ui(&iu_state, &cam_state);
-
-
-    vg_img = vgCreateImage(VG_sL_8, CAM_RES_X,CAM_RES_Y, VG_IMAGE_QUALITY_NONANTIALIASED);
-    if (vg_img == VG_INVALID_HANDLE) {
-        fprintf(stderr, "Can't create vg_img\n");
-        fprintf(stderr, "Error code %x\n", vgGetError());
-        exit(2);
+    FD_SET(fd, fds);
+    if (fd > *max_fd) {
+        *max_fd = fd;
     }
+    return 0;
+}
 
-    printf("Camera Offsets: (%d,%d)\n", cam_state.cam_offset.x, cam_state.cam_offset.y);
+/* clear fd from fds, update max fd if needed */
+int safe_fd_clr(int fd, fd_set* fds, int* max_fd) {
+    assert(max_fd != NULL);
 
-    int w_offset = ((int)disp_state.nativewindow.width - (int)cam_state.fmt_width) / 2;
-    int h_offset = ((int)disp_state.nativewindow.height - (int)cam_state.fmt_height) / 2;
-    printf("Native Window Size: (%d,%d)\n", disp_state.nativewindow.width, disp_state.nativewindow.height);
-    printf("Camera Format Size: (%d,%d)\n", cam_state.fmt_width, cam_state.fmt_height);
-    printf("VG_IMAGE Offsets: (%d,%d)\n", w_offset, h_offset);
+    FD_CLR(fd, fds);
+    if (fd == *max_fd) {
+        (*max_fd)--;
+    }
+    return 0;
+}
 
-    signal(SIGINT, sig_handler);
-    struct cam_buffer*frame;
-
+void *video_thread_main(void *args){
+    struct cam_buffer *frame;
     cv::Mat *opencv_in_gray = NULL;
     cv::Mat *opencv_out_gray = NULL;
     cv::Mat *opencv_rgb = NULL;
     printf("Initialized OpenCV\n");
 
+    int ev_fd = *(int *)args;
+
+    while(!KILLED) {
+        frame = get_frame(&cam_state);
+        if(opencv_in_gray == NULL) {
+            opencv_in_gray = new cv::Mat(CAM_RES_X, CAM_RES_Y, CV_8UC1, (unsigned char *) frame->start);
+            opencv_out_gray = new cv::Mat(CAM_RES_X, CAM_RES_Y, CV_8UC1, (unsigned char *) malloc(frame->length));
+            cam_state.processed_frame = opencv_out_gray->data;
+        }
+
+        opencv_in_gray->copyTo(*opencv_out_gray);
+        //threshold(*opencv_in_gray, *opencv_out_gray, 127, 255,cv::ThresholdTypes::THRESH_BINARY );
+
+        // wake up the main thread because we have a frame ready to display
+        eventfd_write(ev_fd, FRAME_READY);
+
+        // now wait until the main thread is done displaying this frame on-screen
+        pthread_mutex_lock(&frame_consumed_lock);
+        pthread_cond_wait(&frame_consumed, &frame_consumed_lock);
+        // queue the buffer back to v4l now that the main thread is done with it
+        queue_buffer(&cam_state);
+        pthread_mutex_unlock(&frame_consumed_lock);
+    }
+    delete opencv_in_gray;
+    delete opencv_out_gray;
+    delete opencv_rgb;
+}
+
+int main(int argc, char **argv)
+{
+    unsigned int                    i;
+    char                            *cam_name   = (char *)"/dev/video0";
+//    char                            *input_name = (char *)"/dev/input/event0";
+//    char                            *video_file = (char *)"capture.h264";
+    struct timespec                 start, finish, diff_t;
+    double time_save_frame =0.0, time_get_encoder_buffer = 0.0;
+
+    // start the python gui
+    char pygui[] = "/usr/bin/python3 /home/pi/ids/main.py";
+    FILE *pf;
+    pf = popen(pygui, "r");
+    if(!pf){
+        fprintf(stderr, "Could not launch python \n");
+        return 0;
+    }
+
+    init_camera(cam_name, CAM_RES_X, CAM_RES_Y, V4L2_PIX_FMT_GREY, CAM_FPS, CAM_BINNING, &cam_state);
+
+    init_display(&disp_state, CAM_RES_X, CAM_RES_Y, 0);
+
+    // note: don't initialize touch/ui since this is currently handled by the python/kivy overlay
+//    init_touch(input_name, &tch_state,disp_state.nativewindow.height);
+//    init_ui(&iu_state, &cam_state);
+
+    int w_offset = ((int)disp_state.nativewindow.width - (int)cam_state.fmt_width) / 2;
+    int h_offset = ((int)disp_state.nativewindow.height - (int)cam_state.fmt_height) / 2;
+
+    printf("Native Window Size: (%d,%d)\n", disp_state.nativewindow.width, disp_state.nativewindow.height);
+    printf("Camera Format Size: (%d,%d)\n", cam_state.fmt_width, cam_state.fmt_height);
+    printf("Camera ROI Offsets: (%d,%d)\n", cam_state.cam_offset.x, cam_state.cam_offset.y);
+    printf("VG_IMAGE Offsets:   (%d,%d)\n", w_offset, h_offset);
+
+    signal(SIGINT, sig_handler);
+
     Start(disp_state.nativewindow.width, disp_state.nativewindow.height);
 
+    static int r, max_fd;
+    static fd_set master;
+    FD_ZERO(&master);
+
+    int GUI_SOCKET;
+    safe_fd_set(GUI_SOCKET, &master, &max_fd);
+
+
+    int VIDEO_FRAME_FD = eventfd(0, 0);
+    eventfd_t frame_ready;
+    if(VIDEO_FRAME_FD == -1){
+        handle_error("eventfd");
+    }
+    safe_fd_set(VIDEO_FRAME_FD, &master, &max_fd);
+    pthread_create(&video_thread, NULL, video_thread_main, &VIDEO_FRAME_FD);
+
     for (i = 0; !KILLED; i++) {
+        /* back up master */
+        fd_set dup = master;
+        do {
+            // wait for either a camera frame or a Kivy UI event from our child python process
+            r = select(max_fd + 1, &dup, NULL, NULL, NULL);
 
-            frame = get_frame(&cam_state);
-            if(opencv_in_gray == NULL) {
-                opencv_in_gray = new cv::Mat(CAM_RES_X, CAM_RES_Y, CV_8UC1, (unsigned char *) frame->start);
-                opencv_out_gray = new cv::Mat(CAM_RES_X, CAM_RES_Y, CV_8UC1, (unsigned char *) malloc(frame->length));
-            }
+        } while (!KILLED && (r == -1 && (errno = EINTR)));
+        if (!KILLED && r == -1) {
+            perror("select");
+            printf("Error in main select() %s\n", strerror(errno));
+            exit(EXIT_FAILURE);
+        }
+        // check if the python GUI woke us up and handle any UI requests
+        if(FD_ISSET(GUI_SOCKET, &dup)){
+            // handle any UI requests
 
-            opencv_in_gray->data = (unsigned char*)frame->start;
-//            opencv_out_gray->data = opencv_in_gray->data;
+        }
+        // check if the video thread woke us up and display the latest frame
+        if(FD_ISSET(VIDEO_FRAME_FD, &dup)){
+            // consume the video thread event
+            eventfd_read(VIDEO_FRAME_FD, &frame_ready);
 
-            //computeThresholdNEON(frame->start,opencv_buffer,frame->length,127,255);
+            vgImageSubData(disp_state.vg_img, cam_state.processed_frame, cam_state.fmt_width,
+                VG_sL_8, 0, 0, cam_state.fmt_width, cam_state.fmt_height);
+
+            // now tell the video thread we're done with its buffer so it can fetch/process the next frame
+            pthread_cond_signal(&frame_consumed);
+        }
+
+        // eventually change this to load an identity matrix, transform, etc
+        vgSetPixels(w_offset, h_offset, disp_state.vg_img, 0, 0, cam_state.fmt_width, cam_state.fmt_height);
+        eglSwapBuffers(disp_state.egl_state.display, disp_state.egl_state.surface);
+
+//        frame = get_frame(&cam_state);
+//        if(opencv_in_gray == NULL) {
+//            opencv_in_gray = new cv::Mat(CAM_RES_X, CAM_RES_Y, CV_8UC1, (unsigned char *) frame->start);
+//            opencv_out_gray = new cv::Mat(CAM_RES_X, CAM_RES_Y, CV_8UC1, (unsigned char *) malloc(frame->length));
+//        }
+//
+//        opencv_in_gray->data = (unsigned char*)frame->start;
+//        opencv_out_gray->data = opencv_in_gray->data;
+
+        //computeThresholdNEON(frame->start,opencv_buffer,frame->length,127,255);
 
 
-            threshold(*opencv_in_gray, *opencv_out_gray, 127, 255,cv::ThresholdTypes::THRESH_BINARY );
+//        threshold(*opencv_in_gray, *opencv_out_gray, 127, 255,cv::ThresholdTypes::THRESH_BINARY );
 
 
 //            adaptiveBilateralFilter(*opencv_in_gray, *opencv_out_gray, )
@@ -164,80 +269,83 @@ int main(int argc, char **argv)
 //                              cv::AdaptiveThresholdTypes::ADAPTIVE_THRESH_GAUSSIAN_C,
 //                              cv::ThresholdTypes :: THRESH_BINARY,11,2);
 //
-            // no processing on output grayscale
-            //opencv_out_gray->data = opencv_in_gray->data;
-
-            vgImageSubData(vg_img, opencv_out_gray->data, cam_state.fmt_width,
-//            vgImageSubData(vg_img, frame->start, cam_state.fmt_width,
-                VG_sL_8, 0, 0, cam_state.fmt_width, cam_state.fmt_height);
-            vgSetPixels(w_offset, h_offset, vg_img, 0, 0, cam_state.fmt_width, cam_state.fmt_height);
+        // no processing on output grayscale
+        //opencv_out_gray->data = opencv_in_gray->data;
 
 
-            if( opencv_rgb == NULL){
-                opencv_rgb = new cv::Mat(CAM_RES_X, CAM_RES_Y, CV_8UC3, get_encoder_buffer(&vid_state));
-            }
-            else {
-                time_get_encoder_buffer += timer([&]() {
-                    opencv_rgb->data = get_encoder_buffer(&vid_state);
-                });
-            }
+//          vgImageSubData(disp_state.vg_img, opencv_out_gray->data, cam_state.fmt_width,
+//                           VG_sL_8, 0, 0, cam_state.fmt_width, cam_state.fmt_height);
 
 
-            // convert to RGB because OMAX doesn't support luminance videos
-            cv::cvtColor(*opencv_out_gray, *opencv_rgb, cv::COLOR_GRAY2RGB);
 
-            time_save_frame += timer([&](){ save_frame(&vid_state);});
+//          vgImageSubData(disp_state.vg_img, opencv_rgba.data, cam_state.fmt_width,
+//                           VG_sRGBA_8888, 0, 0, cam_state.fmt_width, cam_state.fmt_height);
+
+
+//        vgSetPixels(w_offset, h_offset, disp_state.vg_img, 0, 0, cam_state.fmt_width, cam_state.fmt_height);
+
+
+//        if( opencv_rgb == NULL){
+//            opencv_rgb = new cv::Mat(CAM_RES_X, CAM_RES_Y, CV_8UC3, get_encoder_buffer(&vid_state));
+//        }
+//        else {
+//                time_get_encoder_buffer += timer([&]() {
+//                opencv_rgb->data = get_encoder_buffer(&vid_state);
+//                });
+//        }
+
+
+        // convert to RGB because OMAX doesn't support luminance videos
+//        cv::cvtColor(*opencv_out_gray, *opencv_rgb, cv::COLOR_GRAY2RGB);
+
+//            time_save_frame += timer([&](){
 //            save_frame(&vid_state);
+//            });
 
-            queue_buffer(&cam_state);
+//        queue_buffer(&cam_state);
 
-            // handle touch events
-            //process_touch_events(&tch_state, handle_touch_event);
-            update_ui(&iu_state);
+        // handle touch events
+        //process_touch_events(&tch_state, handle_touch_event);
+        //update_ui(&iu_state);
 
-            eglSwapBuffers(disp_state.egl_state.display, disp_state.egl_state.surface);
+//        eglSwapBuffers(disp_state.egl_state.display, disp_state.egl_state.surface);
 
-            if(i%FPS_INTERVAL == 0 && i > 0) {
-                if(i == FPS_INTERVAL){
-                    clock_gettime( CLOCK_MONOTONIC, &start );
-                } else {
-                    clock_gettime(CLOCK_MONOTONIC, &finish);
-                    diff(&start, &finish, &diff_t);
-                    float diff_secs = diff_t.tv_sec + (diff_t.tv_nsec / 1.0e9);
-                    if (i == 0) {
-                        printf("\n\n");
-                        fflush(stdout);
-                    }
-                    printf("\e[0EFPS: %.2f, Calculated over %06d frames, Total time: %.2fs\n",
-                           (i - FPS_INTERVAL) / diff_secs, i-FPS_INTERVAL, diff_secs);
+        if(i%FPS_INTERVAL == 0 && i > 0) {
+            if(i == FPS_INTERVAL){
+                clock_gettime( CLOCK_MONOTONIC, &start );
+            } else {
+                clock_gettime(CLOCK_MONOTONIC, &finish);
+                diff(&start, &finish, &diff_t);
+                float diff_secs = diff_t.tv_sec + (diff_t.tv_nsec / 1.0e9);
+                if (i == 0) {
+                    printf("\n\n");
                     fflush(stdout);
-
-                    printf("Time spent in get_encoder_buffer: %.2fms, Calculated over %06d frames, Total time: %.2fs\n",
-                           1000.0*time_get_encoder_buffer/(i+1), i+1, time_get_encoder_buffer);
-
-
-                    printf("Time spent in save_frame: %.2fms, Calculated over %06d frames, Total time: %.2fs\n",
-                          1000.0*time_save_frame/(i+1), i+1, time_save_frame);
-
-                    fflush(stdout);
-
                 }
+                printf("\e[0EFPS: %.2f, Calculated over %06d frames, Total time: %.2fs\n",
+                       (i - FPS_INTERVAL) / diff_secs, i-FPS_INTERVAL, diff_secs);
+                fflush(stdout);
+
+//                printf("Time spent in get_encoder_buffer: %.2fms, Calculated over %06d frames, Total time: %.2fs\n",
+//                       1000.0*time_get_encoder_buffer/(i+1), i+1, time_get_encoder_buffer);
+//
+//
+//                printf("Time spent in save_frame: %.2fms, Calculated over %06d frames, Total time: %.2fs\n",
+//                      1000.0*time_save_frame/(i+1), i+1, time_save_frame);
+
+                fflush(stdout);
+
             }
+        }
     }
 
+    pthread_join(video_thread, NULL);
     deinit_camera(&cam_state);
-    vgDestroyImage(vg_img);
     deinit_display(&disp_state);
-    deinit_video(&vid_state);
+//    deinit_video(&vid_state);
     //deinit_touch(&tch_state);
-
-
-    delete opencv_in_gray;
-    delete opencv_out_gray;
-    delete opencv_rgb;
 
     printf("\n\n");
     fflush(stdout);
-
+    fclose(pf);
     return 0;
 }

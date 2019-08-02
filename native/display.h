@@ -3,6 +3,7 @@
 #include <GLES2/gl2.h>
 #include <VG/openvg.h>
 #include <VG/vgu.h>
+#include <ilclient.h>
 
 #ifndef IDS_DISPLAY_H
 #define IDS_DISPLAY_H
@@ -27,31 +28,20 @@ typedef struct
 
 } egl_state;
 
-struct egl_manager {
-    EGLNativeDisplayType xdpy;
-    EGLNativeWindowType xwin;
-    EGLNativePixmapType xpix;
-
-    EGLDisplay dpy;
-    EGLConfig conf;
-    EGLContext ctx;
-
-    EGLSurface win;
-    EGLSurface pix;
-    EGLSurface pbuf;
-    EGLImageKHR image;
-
-    EGLBoolean verbose;
-    EGLint major, minor;
-};
-
 typedef struct display_state{
     EGL_DISPMANX_WINDOW_T           nativewindow;
     egl_state                       egl_state;
+    VGImage                         vg_img;
+    EGLImageKHR                     eglKHRImage;
+//    OMX_BUFFERHEADERTYPE            *eglBuffer;
+//    COMPONENT_T                     *egl_render;
+    ILCLIENT_T                      *client;
+
 } display_state;
 
 
-void init_display(display_state *state);
+//void init_display(display_state *state);
+void init_display(display_state *state, int cam_resx, int cam_resy, int create_khr);
 void deinit_display(display_state *state);
 
 void init_egl(egl_state *state);

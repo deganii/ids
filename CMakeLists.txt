@@ -47,6 +47,8 @@ add_library(gpufft
 add_library(idslib native
         native/display.c
         native/display.h
+        native/egl_render.c
+        native/egl_render.h
         native/fontinfo.h
         native/shapes.c
         native/shapes.h
@@ -68,7 +70,11 @@ add_library(idslib native
 
 add_executable(ids main.cpp)
 add_executable(displaytest tests/displaytest.c)
+add_executable(egltest tests/egltest.c)
 add_executable(perftest tests/perftest.cpp)
+add_executable(listcomponents tests/listcomponents.c)
+add_executable(portinfo tests/portinfo.c)
+add_executable(fullinfo tests/full_info.c)
 
 target_link_libraries(idslib
         mtdev
@@ -92,16 +98,22 @@ target_link_libraries(idslib
         #fftw3 fftw3f fftw3_threads fftw3f_threads
         /home/pi/fftw-3.3.8/.libs/libfftw3f.a
         /home/pi/fftw-3.3.8/threads/.libs/libfftw3f_threads.a
+        openmaxil
         )
 
 target_link_libraries(gpufft rt m dl)
 target_link_libraries(ids idslib)
 target_link_libraries(displaytest idslib)
+target_link_libraries(egltest idslib)
 target_link_libraries(perftest idslib gpufft)
+target_link_libraries(listcomponents idslib)
+target_link_libraries(portinfo idslib)
+target_link_libraries(fullinfo idslib)
 
 add_dependencies(ids idslib)
 add_dependencies(displaytest idslib)
+add_dependencies(egltest idslib)
 add_dependencies(perftest idslib gpufft)
-
-
-
+add_dependencies(listcomponents idslib)
+add_dependencies(portinfo idslib)
+add_dependencies(fullinfo idslib)
